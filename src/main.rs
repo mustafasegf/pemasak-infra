@@ -7,6 +7,7 @@ use bollard::{
         StopContainerOptions,
     },
     image::ListImagesOptions,
+    network::{ConnectNetworkOptions, ListNetworksOptions},
     Docker,
 };
 use nixpacks::{
@@ -19,6 +20,7 @@ async fn main() -> Result<()> {
     let container_name = "go-example".to_string();
     let image_name = "go-example:latest".to_string();
     let container_src = "./src/go-example".to_string();
+    let network_name = "go-example-network".to_string();
 
     let plan_options = GeneratePlanOptions::default();
     let build_options = DockerBuilderOptions {
@@ -58,7 +60,7 @@ async fn main() -> Result<()> {
         .collect::<Vec<_>>();
 
     for container in &containers {
-        println!("container -> {:#?}", container.names);
+        println!("container -> {:?}", container.names);
     }
 
     if !containers.is_empty() {
@@ -90,6 +92,37 @@ async fn main() -> Result<()> {
         .await?;
 
     println!("create response-> {:#?}", res);
+
+    // check if network exists
+    let network = docker
+        .list_networks(Some(ListNetworksOptions {
+            filters: HashMap::from([("name".to_string(), vec![network_name.clone()])]),
+        }))
+        .await?
+        .first()
+        .map(|n| n.to_owned());
+
+    if network.is_none() {
+        let options = bollard::network::CreateNetworkOptions {
+            name: network_name.clone(),
+            ..Default::default()
+        };
+        let res = docker.create_network(options).await?;
+        println!("create network response-> {:#?}", res);
+    }
+
+    // connect container to network
+    let res = docker
+        .connect_network(
+            &network_name,
+            ConnectNetworkOptions {
+                container: container_name.clone(),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    println!("connect network response-> {:#?}", res);
 
     docker
         .start_container(&container_name, None::<StartContainerOptions<String>>)
