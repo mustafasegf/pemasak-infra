@@ -3,17 +3,18 @@ use std::collections::HashMap;
 use anyhow::Result;
 use bollard::{
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions,
-        StopContainerOptions,
+        Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions,
+        StartContainerOptions, StopContainerOptions,
     },
     image::ListImagesOptions,
-    network::{ConnectNetworkOptions, ListNetworksOptions},
+    network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     Docker,
 };
 use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
+use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -102,17 +103,32 @@ async fn main() -> Result<()> {
         .first()
         .map(|n| n.to_owned());
 
-    if network.is_none() {
-        let options = bollard::network::CreateNetworkOptions {
-            name: network_name.clone(),
-            ..Default::default()
-        };
-        let res = docker.create_network(options).await?;
-        println!("create network response-> {:#?}", res);
-    }
+    let network = match network {
+        Some(n) => {
+            println!("Existing network id -> {:?}", n.id);
+            n
+        }
+        None => {
+            let options = bollard::network::CreateNetworkOptions {
+                name: network_name.clone(),
+                ..Default::default()
+            };
+            let res = docker.create_network(options).await?;
+            println!("create network response-> {:#?}", res);
+
+            docker
+                .list_networks(Some(ListNetworksOptions {
+                    filters: HashMap::from([("name".to_string(), vec![network_name.clone()])]),
+                }))
+                .await?
+                .first()
+                .map(|n| n.to_owned())
+                .ok_or(anyhow::anyhow!("No network found after make one???"))?
+        }
+    };
 
     // connect container to network
-    let res = docker
+    docker
         .connect_network(
             &network_name,
             ConnectNetworkOptions {
@@ -127,6 +143,29 @@ async fn main() -> Result<()> {
     docker
         .start_container(&container_name, None::<StartContainerOptions<String>>)
         .await?;
+
+    sleep(std::time::Duration::from_secs(1)).await;
+
+    //inspect network
+    let network_inspect = docker
+        .inspect_network(
+            &network.id.unwrap(),
+            Some(InspectNetworkOptions::<&str> {
+                verbose: true,
+                ..Default::default()
+            }),
+        )
+        .await?;
+
+    println!(
+        "ipv4 address -> {:#?}",
+        network_inspect
+            .containers
+            .unwrap()
+            .get(&res.id)
+            .unwrap()
+            .ipv4_address
+    );
 
     Ok(())
 }
