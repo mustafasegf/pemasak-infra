@@ -26,17 +26,13 @@
         rustToolchain = pkgs.pkgsBuildHost.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
         # this is how we can tell crane to use our toolchain!
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
-        # cf. https://crane.dev/API.html#libcleancargosource
         src = craneLib.cleanCargoSource ./.;
-        # as before
         nativeBuildInputs = with pkgs; [ rustToolchain pkg-config ];
         buildInputs = with pkgs; [ openssl ];
-        # because we'll use it for both `cargoArtifacts` and `bin`
         commonArgs = {
           inherit src buildInputs nativeBuildInputs;
         };
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-        # remember, `set1 // set2` does a shallow merge:
         bin = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
         });
@@ -45,14 +41,10 @@
       {
         packages =
           {
-            # that way we can build `bin` specifically,
-            # but it's also the default.
             inherit bin;
             default = bin;
           };
         devShells.default = mkShell {
-          # instead of passing `buildInputs` / `nativeBuildInputs`,
-          # we refer to an existing derivation here
           inputsFrom = [ bin ];
         };
       }
