@@ -7,6 +7,13 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
+axum = { version = "0.6.20", features = ["tracing", "json", "tokio", "tower-log", "form", "headers"] }
+axum-auth = "0.4.0"
 bollard = "0.15.0"
+git2 = "0.18.0"
+hyper = { version = "0.14.27", features = ["server", "full"] }
+hyper_cgi = "22.4.15"
 nixpacks = "1.16.0"
+serde = { version = "1.0.188", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["full"] }
+url = "2.4.1"
