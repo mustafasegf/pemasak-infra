@@ -1,3 +1,4 @@
 /target
 .direnv
 /result
+/src/git-repo/
