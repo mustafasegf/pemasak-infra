@@ -79,7 +79,6 @@ struct GitQuery {
     service: String,
 }
 
-
 async fn get_info_handler(
     Path(repo): Path<String>,
     q: Query<GitQuery>,
