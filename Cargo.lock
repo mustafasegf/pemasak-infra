@@ -1581,6 +1581,7 @@ dependencies = [
  "axum",
  "axum-auth",
  "bollard",
+ "flate2",
  "git2",
  "hyper",
  "hyper_cgi",

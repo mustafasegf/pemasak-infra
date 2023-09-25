@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+#![allow(dead_code, unused_imports)]  
+
+use std::{collections::HashMap, env, process::Stdio};
 
 use anyhow::Result;
 use axum_auth::AuthBasic;
@@ -15,9 +17,16 @@ use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
-use tokio::{process::Command, time::sleep};
+use tokio::{
+    io::{self, AsyncReadExt, AsyncWriteExt},
+    process::Command,
+    time::sleep,
+};
 
-use hyper::service::{make_service_fn, service_fn};
+use hyper::{
+    http::response::Builder as ResponseBuilder,
+    service::{make_service_fn, service_fn},
+};
 use hyper::{Body, Request, Server};
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -26,10 +35,36 @@ use axum::{
     extract::{Path, Query},
     http::header::HeaderMap,
     response::{Html, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
+use flate2::read::GzDecoder;
 use serde::Deserialize;
+
+fn packet_write(s: &str) -> Vec<u8> {
+    let length = s.len() + 4;
+    let mut length_hex = format!("{:x}", length);
+
+    while length_hex.len() % 4 != 0 {
+        length_hex.insert(0, '0');
+    }
+
+    let result = format!("{}{}", length_hex, s);
+
+    result.into_bytes()
+}
+
+fn packet_flush() -> Vec<u8> {
+    "0000".into()
+}
+
+pub async fn fallback(uri: axum::http::Uri) -> impl axum::response::IntoResponse {
+    println!("route not found uri -> {:#?}", uri);
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        format!("No route {}", uri),
+    )
+}
 
 async fn handlerAuth(AuthBasic((id, password)): AuthBasic) -> String {
     if let Some(password) = password {
@@ -42,10 +77,6 @@ async fn handlerAuth(AuthBasic((id, password)): AuthBasic) -> String {
 #[derive(Deserialize, Debug)]
 struct GitQuery {
     service: String,
-}
-
-async fn handlerGeneric(Path((repo, path)): Path<(String, String)>) -> String {
-    format!("repo: {}, path: {}", repo, path)
 }
 
 async fn get_info_handler(
@@ -85,33 +116,94 @@ async fn get_info_handler(
 
     // Response::new(Body::from(out.stdout))
     Response::builder()
-        .header("Expires", "Fri, 01 Jan 1980 00:00:00 GMT")
-        .header("Pragma", "no-cache")
-        .header("Cache-Control", "no-cache, max-age=0, must-revalidate")
+        .hdr_no_cache()
         .header(
             "Content-Type",
             "application/x-git-receive-pack-advertisement",
         )
-        // .body(Body::from(out.stdout))
         .body(Body::from(body))
         .unwrap()
 }
 
-fn packet_write(s: &str) -> Vec<u8> {
-    let length = s.len() + 4;
-    let mut length_hex = format!("{:x}", length);
+pub async fn service_rpc(
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    mut req: Request<Body>,
+) -> Response<Body> {
+    let rpc = "git-receive-pack";
+    // if let Some(default_env) = DEFAULT_CONFIG.default_env {
+    //     env.push(default_env);
+    // }
 
-    while length_hex.len() % 4 != 0 {
-        length_hex.insert(0, '0');
-    }
+    println!("repo -> {:#?}", repo);
+    println!("rpc -> {:#?}", rpc);
+    println!("headers -> {:#?}", headers);
 
-    let result = format!("{}{}", length_hex, s);
+    let full_repo_path = format!("{}/{}", "./src/git-repo", repo);
+    let mut cmd = Command::new(rpc);
+    cmd.args(&[
+        "--stateless-rpc",
+        "--advertise-refs",
+        full_repo_path.as_str(),
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped());
 
-    result.into_bytes()
+    let mut child = cmd.spawn().expect("failed to spawn command");
+    let mut stdin = child.stdin.take().expect("failed to get stdin");
+    let mut stdout = child.stdout.take().expect("failed to get stdout");
+
+    // Write request body to stdin
+    let body_bytes = hyper::body::to_bytes(req.body_mut()).await.unwrap();
+
+    // let mut reader = match req
+    //     .headers()
+    //     .get("Content-Encoding")
+    //     .and_then(|enc| enc.to_str().ok())
+    // {
+    //     Some("gzip") => Box::new(GzDecoder::new(body_bytes)),
+    //     _ => Box::new(body_bytes),
+    // };
+
+    // println!("body_bytes -> {:#?}", String::from_utf8_lossy(&body_bytes));
+
+    stdin.write_all(&body_bytes).await.expect("failed to write to stdin");
+    let mut out_body = String::new();
+    stdout.read_to_string(&mut out_body).await.unwrap();
+    println!("out_body -> {:#?}", out_body);
+
+    Response::builder()
+        .header("Content-Type", "application/x-git-receive-pack-result")
+        .header("Connection", "Keep-Alive")
+        .header("Transfer-Encoding", "chunked")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(out_body.as_bytes().to_owned()))
+        // .body(Body::empty())
+        .unwrap()
 }
 
-fn packet_flush() -> Vec<u8> {
-    "0000".into()
+trait GitServer {
+    fn hdr_no_cache(self) -> Self;
+    fn hdr_cache_forever(self) -> Self;
+}
+
+impl GitServer for ResponseBuilder {
+    fn hdr_no_cache(self) -> Self {
+        self.header("Expires", "Fri, 01 Jan 1980 00:00:00 GMT")
+            .header("Pragma", "no-cache")
+            .header("Cache-Control", "no-cache, max-age=0, must-revalidate")
+    }
+    fn hdr_cache_forever(self) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        let expire = now + 31536000;
+        self.header("Date", now.to_string().as_str())
+            .header("Expires", expire.to_string().as_str())
+            .header("Cache-Control", "public, max-age=31536000")
+    }
 }
 
 #[tokio::main]
@@ -125,8 +217,13 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let app = Router::new()
+        .fallback(fallback)
         .route("/:repo/info/refs", get(get_info_handler))
-        .route("/:repo/*path", get(handlerGeneric));
+        .fallback(fallback)
+        .route("/:repo/git-receive-pack", post(service_rpc))
+        // .fallback(fallback)
+    ;
+    // .route("/:repo/*path", get(handlerGeneric));
 
     // /mustafa.git/info/refs?service=git-receive-pack
 
