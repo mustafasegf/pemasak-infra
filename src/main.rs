@@ -1,6 +1,6 @@
-#![allow(dead_code, unused_imports)]  
+#![allow(dead_code, unused_imports)]
 
-use std::{collections::HashMap, env, process::Stdio};
+use std::{collections::HashMap, env, fs::File, process::Stdio};
 
 use anyhow::Result;
 use axum_auth::AuthBasic;
@@ -13,12 +13,13 @@ use bollard::{
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     Docker,
 };
+use bytes::{Buf, BytesMut};
 use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
 use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     process::Command,
     time::sleep,
 };
@@ -26,19 +27,23 @@ use tokio::{
 use hyper::{
     http::response::Builder as ResponseBuilder,
     service::{make_service_fn, service_fn},
+    StatusCode,
 };
 use hyper::{Body, Request, Server};
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use tokio_util::codec::{BytesCodec, FramedRead};
 
 use axum::{
-    extract::{Path, Query},
+    body::Bytes,
+    extract::{BodyStream, DefaultBodyLimit, Path, Query},
     http::header::HeaderMap,
     response::{Html, Response},
     routing::{get, post},
     Router,
 };
 use flate2::read::GzDecoder;
+use futures_util::StreamExt;
 use serde::Deserialize;
 
 fn packet_write(s: &str) -> Vec<u8> {
@@ -66,7 +71,7 @@ pub async fn fallback(uri: axum::http::Uri) -> impl axum::response::IntoResponse
     )
 }
 
-async fn handlerAuth(AuthBasic((id, password)): AuthBasic) -> String {
+async fn handler_auth(AuthBasic((id, password)): AuthBasic) -> String {
     if let Some(password) = password {
         format!("User '{}' with password '{}'", id, password)
     } else {
@@ -128,58 +133,85 @@ async fn get_info_handler(
 pub async fn service_rpc(
     Path(repo): Path<String>,
     headers: HeaderMap,
-    mut req: Request<Body>,
+    // mut req: Request<Body>,
+    // mut stream: BodyStream,
+    body: Bytes,
 ) -> Response<Body> {
     let rpc = "git-receive-pack";
-    // if let Some(default_env) = DEFAULT_CONFIG.default_env {
-    //     env.push(default_env);
-    // }
 
     println!("repo -> {:#?}", repo);
     println!("rpc -> {:#?}", rpc);
     println!("headers -> {:#?}", headers);
 
-    let full_repo_path = format!("{}/{}", "./src/git-repo", repo);
-    let mut cmd = Command::new(rpc);
-    cmd.args(&[
-        "--stateless-rpc",
-        "--advertise-refs",
-        full_repo_path.as_str(),
-    ])
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped());
+    let wd = env::current_dir().unwrap();
 
-    let mut child = cmd.spawn().expect("failed to spawn command");
-    let mut stdin = child.stdin.take().expect("failed to get stdin");
-    let mut stdout = child.stdout.take().expect("failed to get stdout");
+    let full_repo_path = format!("{}/{}/{}", wd.to_str().unwrap(), "src/git-repo", repo);
+    println!("full_repo_path -> {:#?}", full_repo_path);
 
-    // Write request body to stdin
-    let body_bytes = hyper::body::to_bytes(req.body_mut()).await.unwrap();
-
-    // let mut reader = match req
-    //     .headers()
-    //     .get("Content-Encoding")
-    //     .and_then(|enc| enc.to_str().ok())
-    // {
-    //     Some("gzip") => Box::new(GzDecoder::new(body_bytes)),
-    //     _ => Box::new(body_bytes),
-    // };
-
-    // println!("body_bytes -> {:#?}", String::from_utf8_lossy(&body_bytes));
-
-    stdin.write_all(&body_bytes).await.expect("failed to write to stdin");
-    let mut out_body = String::new();
-    stdout.read_to_string(&mut out_body).await.unwrap();
-    println!("out_body -> {:#?}", out_body);
-
-    Response::builder()
+    let mut response = Response::builder()
         .header("Content-Type", "application/x-git-receive-pack-result")
         .header("Connection", "Keep-Alive")
         .header("Transfer-Encoding", "chunked")
         .header("X-Content-Type-Options", "nosniff")
-        .body(Body::from(out_body.as_bytes().to_owned()))
-        // .body(Body::empty())
-        .unwrap()
+        // .body(Body::from(out_body.as_bytes().to_owned()))
+        .body(Body::empty())
+        .unwrap();
+
+    // if headers.get("Content-Encoding").and_then(|enc| enc.to_str().ok()) == Some("gzip") {
+    //     let mut reader = GzDecoder::new(body_bytes.as_ref());
+    //     let new_bytes = match reader.read_to_end(&mut body_bytes) {
+    //         Ok(_) => body_bytes,
+    //         Err(_) => {
+    //             *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+    //             return response;
+    //         }
+    //     };
+    // }
+
+    // println!("body_bytes -> {:#?}", String::from_utf8_lossy(&body_bytes));
+
+    // save body to file
+    let mut file = File::create("body.txt").unwrap();
+    std::io::copy(&mut body.clone().reader(), &mut file).unwrap();
+
+    let mut cmd = Command::new(rpc);
+    cmd.args(&["--stateless-rpc", full_repo_path.as_str()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .envs(std::env::vars());
+    // .spawn()
+    // .expect("failed to spawn command");
+
+    let mut child = cmd.spawn().expect("failed to spawn command");
+
+    let mut stdin = child.stdin.take().expect("failed to get stdin");
+    // let mut stdout = child.stdout.take().expect("failed to get stdout");
+    // let mut stderr = child.stderr.take().expect("failed to get stderr");
+
+    if let Err(e) = stdin.write_all(&body).await {
+        eprintln!("Failed to write to stdin: {}", e);
+        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        return response;
+    }
+    // drop(stdin);
+
+    let output = cmd.output().await.expect("Failed to read stdout/stderr");
+    // let output = child.wait_with_output().await.expect("Failed to read stdout/stderr");
+
+    if !output.status.success() {
+        eprintln!("Command failed: {:?}", output.status);
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+    } else {
+        println!("Command succeeded!");
+        println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        // println!("Stdout: {}", stdout);
+    }
+
+    *response.body_mut() = Body::from(output.stdout);
+
+    response
 }
 
 trait GitServer {
@@ -208,19 +240,19 @@ impl GitServer for ResponseBuilder {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let container_name = "go-example".to_string();
-    let image_name = "go-example:latest".to_string();
-    let container_src = "./src/go-example".to_string();
-    let network_name = "go-example-network".to_string();
+    let _container_name = "go-example".to_string();
+    let _image_name = "go-example:latest".to_string();
+    let _container_src = "./src/go-example".to_string();
+    let _network_name = "go-example-network".to_string();
 
-    let git_repo_path = "./src/repo".to_string();
+    let _git_repo_path = "./src/repo".to_string();
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let app = Router::new()
-        .fallback(fallback)
         .route("/:repo/info/refs", get(get_info_handler))
-        .fallback(fallback)
         .route("/:repo/git-receive-pack", post(service_rpc))
+        .layer(DefaultBodyLimit::disable())
+        .fallback(fallback)
         // .fallback(fallback)
     ;
     // .route("/:repo/*path", get(handlerGeneric));
