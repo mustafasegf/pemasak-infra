@@ -1,6 +1,14 @@
 #![allow(dead_code, unused_imports)]
 
-use std::{collections::HashMap, env, fs::File, process::Stdio};
+use std::{
+    collections::HashMap,
+    env,
+    ffi::OsStr,
+    fs::File,
+    io::Read,
+    path::Path as StdPath,
+    process::{exit, Output, Stdio},
+};
 
 use anyhow::Result;
 use axum_auth::AuthBasic;
@@ -79,66 +87,101 @@ async fn handler_auth(AuthBasic((id, password)): AuthBasic) -> String {
     }
 }
 
+fn get_git_service(service: &str) -> &str {
+    if service.starts_with("git-") {
+        &service[4..]
+    } else {
+        ""
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct GitQuery {
     service: String,
 }
 
-async fn get_info_handler(
+async fn git_command<P, IA, S, IE, K, V>(dir: P, args: IA, envs: IE) -> Result<Output>
+where
+    P: AsRef<StdPath>,
+    IA: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+    IE: IntoIterator<Item = (K, V)>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
+{
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .envs(envs)
+        .output()
+        .await?;
+
+    Ok(output)
+}
+
+async fn get_info_refs(
     Path(repo): Path<String>,
     q: Query<GitQuery>,
     headers: HeaderMap,
 ) -> Response<Body> {
-    let version = headers
-        .get("Git-Protocol")
-        .map(|v| i32::from_str_radix(v.to_str().unwrap_or_default(), 10).unwrap_or_default())
-        .unwrap_or(0);
+    let service = get_git_service(&q.service);
+    if service != "receive-pack" && service != "upload-pack" {
+        // TODO: change to update server into and return file
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .unwrap();
+    }
+
+    let env = match headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
+        Some("version=2") => ("GIT_PROTOCOL".to_string(), "version=2".to_string()),
+        _ => ("".to_string(), "".to_string()),
+    };
+
+    println!("env -> {:#?}", env);
+
+    let envs = std::env::vars()
+        .into_iter()
+        .chain([env])
+        .collect::<Vec<_>>();
 
     println!("repo -> {:#?}", repo);
     println!("q -> {:#?}", q);
     println!("headers -> {:#?}", headers);
-    println!("version -> {:#?}", version);
 
     let full_repo_path = format!("{}/{}", "./src/git-repo", repo);
 
-    let out = Command::new("git-receive-pack")
-        .env("GIT_PROTOCOL", "2")
-        .args(&[
-            "--stateless-rpc",
-            "--advertise-refs",
-            full_repo_path.as_str(),
-        ])
-        .output()
-        .await
-        .unwrap();
+    let out = match git_command(
+        &full_repo_path,
+        &[service, "--stateless-rpc", "--advertise-refs", "."],
+        envs,
+    )
+    .await
+    {
+        Ok(out) => out,
+        Err(e) => {
+            println!("error -> {:#?}", e);
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
+    };
 
-    let out_str = String::from_utf8_lossy(&out.stdout).to_string();
-
-    println!("cmd -> {:#?}", out_str);
     let body = packet_write(&format!("# service={}\n", q.service));
-    let body = [body, out.stdout, packet_flush()].concat();
-    println!("body -> {:#?}", String::from_utf8_lossy(&body));
+    let body = [body, packet_flush(), out.stdout].concat();
 
-    // Response::new(Body::from(out.stdout))
     Response::builder()
-        .hdr_no_cache()
+        .no_cache()
         .header(
             "Content-Type",
-            "application/x-git-receive-pack-advertisement",
+            format!("application/x-git-{service}-advertisement"),
         )
         .body(Body::from(body))
         .unwrap()
 }
 
-pub async fn service_rpc(
-    Path(repo): Path<String>,
-    headers: HeaderMap,
-    // mut req: Request<Body>,
-    // mut stream: BodyStream,
-    body: Bytes,
-) -> Response<Body> {
-    let rpc = "git-receive-pack";
-
+pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
     println!("repo -> {:#?}", repo);
     println!("rpc -> {:#?}", rpc);
     println!("headers -> {:#?}", headers);
@@ -149,13 +192,11 @@ pub async fn service_rpc(
     println!("full_repo_path -> {:#?}", full_repo_path);
 
     let mut response = Response::builder()
-        .header("Content-Type", "application/x-git-receive-pack-result")
-        .header("Connection", "Keep-Alive")
-        .header("Transfer-Encoding", "chunked")
-        .header("X-Content-Type-Options", "nosniff")
-        // .body(Body::from(out_body.as_bytes().to_owned()))
+        .header("Content-Type", format!("application/x-git-{rpc}-result"))
         .body(Body::empty())
         .unwrap();
+
+    // TODO handler gzip
 
     // if headers.get("Content-Encoding").and_then(|enc| enc.to_str().ok()) == Some("gzip") {
     //     let mut reader = GzDecoder::new(body_bytes.as_ref());
@@ -168,36 +209,40 @@ pub async fn service_rpc(
     //     };
     // }
 
-    // println!("body_bytes -> {:#?}", String::from_utf8_lossy(&body_bytes));
+    let env = match headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
+        Some("version=2") => ("GIT_PROTOCOL".to_string(), "version=2".to_string()),
+        _ => ("".to_string(), "".to_string()),
+    };
 
-    // save body to file
-    let mut file = File::create("body.txt").unwrap();
-    std::io::copy(&mut body.clone().reader(), &mut file).unwrap();
+    println!("env -> {:#?}", env);
 
-    let mut cmd = Command::new(rpc);
-    cmd.args(&["--stateless-rpc", full_repo_path.as_str()])
+    let envs = std::env::vars()
+        .into_iter()
+        .chain([env])
+        .collect::<Vec<_>>();
+
+    let mut cmd = Command::new("git");
+    cmd.args(&[rpc, "--stateless-rpc", full_repo_path.as_str()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .envs(std::env::vars());
-    // .spawn()
-    // .expect("failed to spawn command");
+        .envs(envs);
 
     let mut child = cmd.spawn().expect("failed to spawn command");
 
     let mut stdin = child.stdin.take().expect("failed to get stdin");
-    // let mut stdout = child.stdout.take().expect("failed to get stdout");
-    // let mut stderr = child.stderr.take().expect("failed to get stderr");
 
     if let Err(e) = stdin.write_all(&body).await {
         eprintln!("Failed to write to stdin: {}", e);
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         return response;
     }
-    // drop(stdin);
+    drop(stdin);
 
-    let output = cmd.output().await.expect("Failed to read stdout/stderr");
-    // let output = child.wait_with_output().await.expect("Failed to read stdout/stderr");
+    let output = child
+        .wait_with_output()
+        .await
+        .expect("Failed to read stdout/stderr");
 
     if !output.status.success() {
         eprintln!("Command failed: {:?}", output.status);
@@ -206,26 +251,41 @@ pub async fn service_rpc(
     } else {
         println!("Command succeeded!");
         println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
-        // println!("Stdout: {}", stdout);
+        println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+        *response.body_mut() = Body::from(output.stdout);
     }
-
-    *response.body_mut() = Body::from(output.stdout);
 
     response
 }
 
+pub async fn recieve_pack_rpc(
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    service_rpc("receive-pack", &repo, headers, body).await
+}
+
+pub async fn upload_pack_rpc(
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    service_rpc("upload-pack", &repo, headers, body).await
+}
+
 trait GitServer {
-    fn hdr_no_cache(self) -> Self;
-    fn hdr_cache_forever(self) -> Self;
+    fn no_cache(self) -> Self;
+    fn cache_forever(self) -> Self;
 }
 
 impl GitServer for ResponseBuilder {
-    fn hdr_no_cache(self) -> Self {
+    fn no_cache(self) -> Self {
         self.header("Expires", "Fri, 01 Jan 1980 00:00:00 GMT")
             .header("Pragma", "no-cache")
             .header("Cache-Control", "no-cache, max-age=0, must-revalidate")
     }
-    fn hdr_cache_forever(self) -> Self {
+    fn cache_forever(self) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -245,74 +305,23 @@ async fn main() -> Result<()> {
     let _container_src = "./src/go-example".to_string();
     let _network_name = "go-example-network".to_string();
 
-    let _git_repo_path = "./src/repo".to_string();
+    let git_repo_path = "./src/git-repo".to_string();
+    let git_repo_name = "mustafa.git".to_string();
+
+    let _full_repo_path = format!("{}/{}", git_repo_path, git_repo_name);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let app = Router::new()
-        .route("/:repo/info/refs", get(get_info_handler))
-        .route("/:repo/git-receive-pack", post(service_rpc))
+        .route("/:repo/info/refs", get(get_info_refs))
+        .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
+        .route("/:repo/git-upload-pack", post(upload_pack_rpc))
         .layer(DefaultBodyLimit::disable())
-        .fallback(fallback)
-        // .fallback(fallback)
-    ;
-    // .route("/:repo/*path", get(handlerGeneric));
-
-    // /mustafa.git/info/refs?service=git-receive-pack
+        .fallback(fallback);
 
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
-
-    // let make_service = make_service_fn(|_conn| async {
-    //     Ok::<_, Infallible>(service_fn(|req: Request<Body>| async move {
-    //         println!("uri -> {:#}", req.uri());
-    //
-    //         let mut cmd = Command::new("git-http-backend");
-    //         cmd.env("GIT_PROJECT_ROOT", "./src/git-repo/")
-    //             .env("GIT_HTTP_EXPORT_ALL", "");
-    //
-    //         // Extract path info from the URI
-    //         if let Some(path_info) = req.uri().authority() {
-    //             println!("path_info -> {:#?}", path_info);
-    //             cmd.env("PATH_INFO", path_info.as_str());
-    //         }
-    //
-    //         // Extract method from the Request
-    //         cmd.env("REQUEST_METHOD", req.method().as_str());
-    //
-    //         // Extract user information if authenticated
-    //         // This is just an example, and you may have your own logic for user authentication.
-    //         println!("req -> {:#?}", req);
-    //         let url_str = format!(
-    //             "{}://{}{}",
-    //             req.uri()
-    //                 .scheme()
-    //                 .map(|s| s.to_string())
-    //                 .unwrap_or("http".to_string()),
-    //             req.uri().authority().unwrap(),
-    //             req.uri().path_and_query().unwrap()
-    //         );
-    //         if let Ok(auth) = url::Url::parse(&url_str) {
-    //             println!("auth -> {:#?}", auth);
-    //             if auth.username() != "" {
-    //                 cmd.env("REMOTE_USER", auth.username());
-    //             }
-    //         } else {
-    //             panic!("Invalid URL");
-    //         }
-    //
-    //         let (body, err) = do_cgi(req, cmd).await;
-    //         println!("err -> {:?}", String::from_utf8_lossy(&err));
-    //         Ok::<Response<Body>, Infallible>(body)
-    //     }))
-    //     // Ok::<_, Infallible>(service_fn(handle))
-    // });
-    //
-    // let server = Server::bind(&addr).serve(make_service);
-    // if let Err(e) = server.await {
-    //     eprintln!("server error: {}", e);
-    // }
 
     // let plan_options = GeneratePlanOptions::default();
     // let build_options = DockerBuilderOptions {
