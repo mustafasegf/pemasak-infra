@@ -1587,6 +1587,7 @@ dependencies = [
  "git2",
  "hyper",
  "hyper_cgi",
+ "lazy_static",
  "nixpacks",
  "serde",
  "tokio",

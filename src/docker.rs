@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::RwLock};
 
 use anyhow::Result;
 use bollard::{
@@ -14,6 +14,12 @@ use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
+
+lazy_static::lazy_static! {
+    pub static ref REGISTERED_ROUTES: RwLock<HashMap<String, String>> = {
+        RwLock::new([("go-example".to_string(), "172.31.0.2:8080".to_string())].into() )
+    };
+}
 
 pub async fn build_docker(container_name: &str, container_src: &str) -> Result<()> {
     let image_name = format!("{}:latest", container_name);
