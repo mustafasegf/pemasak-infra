@@ -7,10 +7,22 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
-axum = { version = "0.6.20", features = ["tracing", "json", "tokio", "tower-log", "form", "headers"] }
+axum = { version = "0.6.20", features = [
+  "tracing",
+  "json",
+  "tokio",
+  "tower-log",
+  "form",
+  "headers",
+] }
 axum-auth = "0.4.0"
+axum-extra = { version = "0.8.0", features = ["typed-routing"] }
 bollard = "0.15.0"
 bytes = "1.5.0"
+chrono = "0.4.31"
+clap = "4.4.5"
+config = "0.13.3"
+dotenvy = "0.15.7"
 flate2 = "1.0.27"
 futures-util = "0.3.28"
 git2 = "0.18.0"
@@ -19,6 +31,24 @@ hyper_cgi = "22.4.15"
 lazy_static = "1.4.0"
 nixpacks = "1.16.0"
 serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.107"
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-util = "0.7.9"
+tower = { version = "0.4.13", features = ["tokio"] }
+tower-http = { version = "0.4.4", features = ["full", "trace"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
+ulid = { version = "1.1.0", features = ["uuid", "postgres", "serde"] }
 url = "2.4.1"
+uuid = "1.4.1"
+
+[dependencies.sqlx]
+version = "0.7.1"
+default-features = false
+features = [
+  "postgres",
+  "runtime-tokio-rustls",
+  "macros",
+  "uuid",
+  "chrono",
+  "migrate",
+]
