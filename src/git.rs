@@ -171,18 +171,23 @@ pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes)
         .body(Body::empty())
         .unwrap();
 
-    // TODO handler gzip
-
-    // if headers.get("Content-Encoding").and_then(|enc| enc.to_str().ok()) == Some("gzip") {
-    //     let mut reader = GzDecoder::new(body_bytes.as_ref());
-    //     let new_bytes = match reader.read_to_end(&mut body_bytes) {
-    //         Ok(_) => body_bytes,
-    //         Err(_) => {
-    //             *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-    //             return response;
-    //         }
-    //     };
-    // }
+    let body = match headers
+        .get("Content-Encoding")
+        .and_then(|enc| enc.to_str().ok())
+    {
+        Some("gzip") => {
+            let mut reader = flate2::read::GzDecoder::new(body.as_ref());
+            let mut new_bytes = Vec::new();
+            match reader.read_to_end(&mut new_bytes) {
+                Ok(_) => Bytes::from(new_bytes),
+                Err(_) => {
+                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    return response;
+                }
+            }
+        }
+        _ => body,
+    };
 
     let env = match headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
         Some("version=2") => ("GIT_PROTOCOL".to_string(), "version=2".to_string()),
