@@ -135,7 +135,15 @@ pub async fn recieve_pack_rpc(
             };
         };
     };
-    build_docker(&container_name, &container_src).await.unwrap();
+
+    if let Err(e) = build_docker(&container_name, &container_src).await {
+        println!("error -> {:#?}", e);
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty())
+            .unwrap();
+    };
+
     *res.body_mut() = Body::from("container run on go-example:localhost:3000");
     res
 }
