@@ -11,12 +11,13 @@ use axum::{
     extract::{Path, Query},
     response::Response,
 };
-use axum_auth::AuthBasic;
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
 use serde::Deserialize;
 use tokio::{io::AsyncWriteExt, process::Command};
+
+use crate::docker::build_docker;
 
 async fn git_command<P, IA, S, IE, K, V>(dir: P, args: IA, envs: IE) -> Result<Output>
 where
@@ -86,32 +87,57 @@ impl GitServer for ResponseBuilder {
     }
 }
 
-async fn handler_auth(AuthBasic((id, password)): AuthBasic) -> String {
-    if let Some(password) = password {
-        format!("User '{}' with password '{}'", id, password)
-    } else {
-        format!("User '{}' without password", id)
-    }
-}
+// async fn handler_auth(AuthBasic((id, password)): AuthBasic) -> String {
+//     if let Some(password) = password {
+//         format!("User '{}' with password '{}'", id, password)
+//     } else {
+//         format!("User '{}' without password", id)
+//     }
+// }
 
-pub async fn get_file_text(path: &str) -> impl Fn(&str) -> Response<Body> {
-    move |path: &str| {
-        let mut file = File::open(path).unwrap();
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
-        Response::builder()
-            .cache_forever()
-            .body(Body::from(contents))
-            .unwrap()
-    }
-}
+// pub async fn get_file_text(path: &str) -> impl Fn(&str) -> Response<Body> {
+//     move |path: &str| {
+//         let mut file = File::open(path).unwrap();
+//         let mut contents = String::new();
+//         file.read_to_string(&mut contents).unwrap();
+//         Response::builder()
+//             .cache_forever()
+//             .body(Body::from(contents))
+//             .unwrap()
+//     }
+// }
 
 pub async fn recieve_pack_rpc(
     Path(repo): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    service_rpc("receive-pack", &repo, headers, body).await
+    let mut res = service_rpc("receive-pack", &repo, headers, body).await;
+    let container_name = "go-example".to_string();
+    let repo_src = "./src/git-repo/mustafa.git".to_string();
+    let container_src = "./src/git-repo/mustafa.git/master".to_string();
+
+    if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
+        // try to pull
+        if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
+            repo.find_remote("origin")
+                .and_then(|mut remote| remote.fetch(&["master"], None, None))
+        }) {
+            // try to delete the folder and clone again
+            std::fs::remove_dir_all(&container_src).unwrap();
+
+            if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
+                // if this doesnt work then something is wrong
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::empty())
+                    .unwrap();
+            };
+        };
+    };
+    build_docker(&container_name, &container_src).await.unwrap();
+    *res.body_mut() = Body::from("container run on go-example:localhost:3000");
+    res
 }
 
 pub async fn upload_pack_rpc(

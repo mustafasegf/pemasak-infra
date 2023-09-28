@@ -58,15 +58,15 @@ pub async fn fallback(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _container_name = "go-example".to_string();
-    let _image_name = "go-example:latest".to_string();
-    let _container_src = "./src/go-example".to_string();
-    let _network_name = "go-example-network".to_string();
-
-    let git_repo_path = "./src/git-repo".to_string();
-    let git_repo_name = "mustafa.git".to_string();
-
-    let _full_repo_path = format!("{}/{}", git_repo_path, git_repo_name);
+    // let _container_name = "go-example".to_string();
+    // let _image_name = "go-example:latest".to_string();
+    // let _container_src = "./src/go-example".to_string();
+    // let _network_name = "go-example-network".to_string();
+    //
+    // let git_repo_path = "./src/git-repo".to_string();
+    // let git_repo_name = "mustafa.git".to_string();
+    //
+    // let _full_repo_path = format!("{}/{}", git_repo_path, git_repo_name);
 
     let client = Client::new();
 
