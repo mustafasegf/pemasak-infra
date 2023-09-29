@@ -2,3 +2,7 @@
 .direnv
 /result
 /src/git-repo/
+
+configuration.yml
+configuration.yaml
+.env

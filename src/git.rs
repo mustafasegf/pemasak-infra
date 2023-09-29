@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     env,
     ffi::OsStr,
     fs::File,
@@ -9,16 +8,55 @@ use std::{
 };
 
 use axum::{
-    extract::{Path, Query},
-    response::{IntoResponse, Response},
+    extract::{DefaultBodyLimit, Path, Query},
+    response::Response,
+    routing::{get, post},
+    Router,
 };
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
 use serde::Deserialize;
 use tokio::{io::AsyncWriteExt, process::Command};
+use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::docker::build_docker;
+use crate::{configuration::Settings, docker::build_docker, startup::AppState};
+
+pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
+    Router::new()
+        .route("/:repo/git-upload-pack", post(upload_pack_rpc))
+        .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
+        .route("/:repo/info/refs", get(get_info_refs))
+        .route(
+            "/:repo/HEAD",
+            get(|Path(repo): Path<String>| async move { get_file_text(repo, "HEAD").await }),
+        )
+        .route(
+            "/:repo/objects/info/alternates",
+            get(|Path(repo): Path<String>| async move {
+                get_file_text(repo, "objects/info/alternates").await
+            }),
+        )
+        .route(
+            "/:repo/objects/info/http-alternates",
+            get(|Path(repo): Path<String>| async move {
+                get_file_text(repo, "objects/info/http-alternates").await
+            }),
+        )
+        .route("/:repo/objects/info/packs", get(get_info_packs))
+        .route(
+            "/:repo/objects/info/:file",
+            get(
+                |Path((repo, head, file)): Path<(String, String, String)>| async move {
+                    get_file_text(repo, format!("{}/{}", head, file).as_ref()).await
+                },
+            ),
+        )
+        .route("/:repo/objects/:head/:hash", get(get_loose_object))
+        .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
+        .layer(DefaultBodyLimit::disable())
+        .with_state(state)
+}
 
 async fn git_command<P, IA, S, IE, K, V>(dir: P, args: IA, envs: IE) -> Result<Output>
 where

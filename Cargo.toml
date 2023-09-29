@@ -18,6 +18,7 @@ axum = { version = "0.6.20", features = [
 axum-auth = "0.4.0"
 axum-extra = { version = "0.8.0", features = ["typed-routing"] }
 bollard = "0.15.0"
+byte-unit = "4.0.19"
 bytes = "1.5.0"
 chrono = "0.4.31"
 clap = "4.4.5"
@@ -36,6 +37,8 @@ tokio = { version = "1.32.0", features = ["full"] }
 tokio-util = "0.7.9"
 tower = { version = "0.4.13", features = ["tokio"] }
 tower-http = { version = "0.4.4", features = ["full", "trace"] }
+tracing = "0.1.37"
+tracing-bunyan-formatter = "0.3.9"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
 ulid = { version = "1.1.0", features = ["uuid", "postgres", "serde"] }
 url = "2.4.1"

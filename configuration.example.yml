@@ -1,0 +1,14 @@
+application:
+  port: 8080
+  host: "localhost"
+  body_limit: "25mib"
+  secret: "123"
+  auth: true
+  ipv4: false
+database:
+  user: "postgres"
+  password: "password"
+  host: "127.0.0.1"
+  port: 5432
+  name: "dev"
+  timeout: 20

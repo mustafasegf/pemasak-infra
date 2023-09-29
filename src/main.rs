@@ -1,15 +1,17 @@
-// #![allow(dead_code, unused_imports)]
-
 use anyhow::Result;
 use hyper::{client::HttpConnector, Body, Request, StatusCode, Uri};
 use pemasak_infra::{
-    docker::REGISTERED_ROUTES,
+    configuration,
     git::{
         get_file_text, get_info_packs, get_info_refs, get_loose_object, get_pack_or_idx_file,
         recieve_pack_rpc, upload_pack_rpc,
     },
+    startup, telemetry,
 };
-use std::{fmt::Display, net::SocketAddr};
+use std::{
+    net::{SocketAddr, TcpListener},
+    process,
+};
 
 type Client = hyper::client::Client<HttpConnector, Body>;
 
@@ -59,60 +61,118 @@ pub async fn fallback(
     }
 }
 
+// #[tokio::main]
+// async fn main() -> Result<()> {
+//     // let _container_name = "go-example".to_string();
+//     // let _image_name = "go-example:latest".to_string();
+//     // let _container_src = "./src/go-example".to_string();
+//     // let _network_name = "go-example-network".to_string();
+//     //
+//     // let git_repo_path = "./src/git-repo".to_string();
+//     // let git_repo_name = "mustafa.git".to_string();
+//     //
+//     // let _full_repo_path = format!("{}/{}", git_repo_path, git_repo_name);
+//
+//     let client = Client::new();
+//
+//     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+//     let app = Router::new()
+//         .route("/:repo/git-upload-pack", post(upload_pack_rpc))
+//         .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
+//         .route("/:repo/info/refs", get(get_info_refs))
+//         .route(
+//             "/:repo/HEAD",
+//             get(|Path(repo): Path<String>| async move { get_file_text(repo, "HEAD").await }),
+//         )
+//         .route(
+//             "/:repo/objects/info/alternates",
+//             get(|Path(repo): Path<String>| async move {
+//                 get_file_text(repo, "objects/info/alternates").await
+//             }),
+//         )
+//         .route(
+//             "/:repo/objects/info/http-alternates",
+//             get(|Path(repo): Path<String>| async move {
+//                 get_file_text(repo, "objects/info/http-alternates").await
+//             }),
+//         )
+//         .route("/:repo/objects/info/packs", get(get_info_packs))
+//         .route(
+//             "/:repo/objects/info/:file",
+//             get(
+//                 |Path((repo, head, file)): Path<(String, String, String)>| async move {
+//                     get_file_text(repo, format!("{}/{}", head, file).as_ref()).await
+//                 },
+//             ),
+//         )
+//         .route("/:repo/objects/:head/:hash", get(get_loose_object))
+//         .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
+//         .layer(DefaultBodyLimit::disable())
+//         .fallback(fallback)
+//         .with_state(client);
+//
+//     axum::Server::bind(&addr)
+//         .serve(app.into_make_service())
+//         .await
+//         .unwrap();
+//
+//     Ok(())
+// }
+
 #[tokio::main]
-async fn main() -> Result<()> {
-    let _container_name = "go-example".to_string();
-    // let _image_name = "go-example:latest".to_string();
-    // let _container_src = "./src/go-example".to_string();
-    // let _network_name = "go-example-network".to_string();
+async fn main() {
+    telemetry::init_tracing();
+    let config = match configuration::get_configuration() {
+        Ok(config) => config,
+        Err(err) => {
+            tracing::error!("Failed to read configuration: {}", err);
+            process::exit(1);
+        }
+    };
+
+    // let pool = match PgPoolOptions::new()
+    //     .acquire_timeout(std::time::Duration::from_secs(config.database.timeout))
+    //     .connect_with(config.connection_options())
+    //     .await
+    // {
+    //     Ok(pool) => pool,
+    //     Err(err) => {
+    //         tracing::error!("Failed to connect to Postgres: {}", err);
+    //         process::exit(1);
+    //     }
+    // };
     //
-    // let git_repo_path = "./src/git-repo".to_string();
-    // let git_repo_name = "mustafa.git".to_string();
-    //
-    // let _full_repo_path = format!("{}/{}", git_repo_path, git_repo_name);
 
-    let client = Client::new();
+    let state = startup::AppState {
+        secret: config.application.secret.clone(),
+        auth: config.application.auth,
+        client: Client::new(),
+        // pool,
+    };
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    let app = Router::new()
-        .route("/:repo/git-upload-pack", post(upload_pack_rpc))
-        .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
-        .route("/:repo/info/refs", get(get_info_refs))
-        .route(
-            "/:repo/HEAD",
-            get(|Path(repo): Path<String>| async move { get_file_text(repo, "HEAD").await }),
-        )
-        .route(
-            "/:repo/objects/info/alternates",
-            get(|Path(repo): Path<String>| async move {
-                get_file_text(repo, "objects/info/alternates").await
-            }),
-        )
-        .route(
-            "/:repo/objects/info/http-alternates",
-            get(|Path(repo): Path<String>| async move {
-                get_file_text(repo, "objects/info/http-alternates").await
-            }),
-        )
-        .route("/:repo/objects/info/packs", get(get_info_packs))
-        .route(
-            "/:repo/objects/info/:file",
-            get(
-                |Path((repo, head, file)): Path<(String, String, String)>| async move {
-                    get_file_text(repo, format!("{}/{}", head, file).as_ref()).await
-                },
-            ),
-        )
-        .route("/:repo/objects/:head/:hash", get(get_loose_object))
-        .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
-        .layer(DefaultBodyLimit::disable())
-        .fallback(fallback)
-        .with_state(client);
+    let addr_string = config.address_string();
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let addr = match config.address() {
+        Ok(addr) => addr,
+        Err(err) => {
+            tracing::error!("Failed to parse address {}: {}", addr_string, err);
+            process::exit(1);
+        }
+    };
 
-    Ok(())
+    let listener = match TcpListener::bind(addr) {
+        Ok(listener) => listener,
+        Err(err) => {
+            tracing::error!("Failed to bind address {}: {}", addr_string, err);
+            process::exit(1);
+        }
+    };
+
+    match startup::run(listener, state, config).await {
+        Err(err) => {
+            tracing::error!("Failed to start server on address {}: {}", addr_string, err);
+            process::exit(1);
+        }
+        _ => {}
+    };
 }
