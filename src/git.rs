@@ -12,8 +12,6 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use axum_extra::routing::RouterExt;
-
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
@@ -58,8 +56,8 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
         .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
 
         // not git server related
-        .route_with_tsr("/:repo", post(create_new_repo))
-        .route_with_tsr("/:repo", delete(delete_repo))
+        .route("/:repo", post(create_new_repo))
+        .route("/:repo", delete(delete_repo))
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(config.body_limit()))
         .with_state(state)
