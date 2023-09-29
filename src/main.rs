@@ -32,6 +32,7 @@ async fn main() {
         base: config.git.base.clone(),
         auth: config.application.auth,
         client: Client::new(),
+        domain: config.domain(),
         // pool,
     };
 

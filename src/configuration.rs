@@ -84,6 +84,13 @@ impl Settings {
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid address"))
     }
 
+    pub fn domain(&self) -> String {
+        match self.application.port {
+            80 | 443 => self.application.host.clone(),
+            _ => format!("{}:{}", self.application.host, self.application.port),
+        }
+    }
+
     pub fn body_limit(&self) -> usize {
         Byte::from_str(&self.application.body_limit)
             .unwrap_or(Byte::from_bytes(25 * 1024 * 1024))
