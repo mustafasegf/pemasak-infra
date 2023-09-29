@@ -9,18 +9,20 @@ use std::{
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     response::Response,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
 use serde::Deserialize;
+use serde_json::json;
 use tokio::{io::AsyncWriteExt, process::Command};
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::{configuration::Settings, docker::build_docker, startup::AppState};
 
-pub fn router(state: AppState, _config: &Settings) -> Router<AppState, Body> {
+pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route("/:repo/git-upload-pack", post(upload_pack_rpc))
         .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
@@ -52,7 +54,12 @@ pub fn router(state: AppState, _config: &Settings) -> Router<AppState, Body> {
         )
         .route("/:repo/objects/:head/:hash", get(get_loose_object))
         .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
+
+        // not git server related
+        .route("/:repo", post(create_new_repo))
+        .route("/:repo", delete(delete_repo))
         .layer(DefaultBodyLimit::disable())
+        .layer(RequestBodyLimitLayer::new(config.body_limit()))
         .with_state(state)
 }
 
@@ -122,14 +129,6 @@ impl GitServer for ResponseBuilder {
             .header("Cache-Control", "public, max-age=31536000")
     }
 }
-
-// async fn handler_auth(AuthBasic((id, password)): AuthBasic) -> String {
-//     if let Some(password) = password {
-//         format!("User '{}' with password '{}'", id, password)
-//     } else {
-//         format!("User '{}' without password", id)
-//     }
-// }
 
 pub async fn get_info_packs(
     Path(repo): Path<String>,
@@ -438,4 +437,81 @@ pub async fn get_info_refs(
         )
         .body(Body::from(body))
         .unwrap()
+}
+
+pub async fn create_new_repo(
+    Path(repo): Path<String>,
+    State(AppState { base, .. }): State<AppState>,
+) -> Response<Body> {
+    // check if repo exists
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}"),
+        false => format!("{base}/{repo}.git"),
+    };
+
+    match File::open(&path) {
+        Ok(_) => {
+            return Response::builder()
+                .status(StatusCode::CONFLICT)
+                .body(Body::from(json!({"message": "repo exist"}).to_string()))
+                .unwrap()
+        }
+        Err(_) => {}
+    };
+
+    match git2::Repository::init_bare(&path) {
+        Ok(_) => Response::builder()
+            .body(Body::from(
+                json!({"message": "repo created successfully"}).to_string(),
+            ))
+            .unwrap(),
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(
+                    json!({"message": format!("failed to init repo: {}", e)}).to_string(),
+                ))
+                .unwrap()
+        }
+    }
+}
+
+pub async fn delete_repo(
+    Path(repo): Path<String>,
+    State(AppState { base, .. }): State<AppState>,
+) -> Response<Body> {
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}"),
+        false => format!("{base}/{repo}.git"),
+    };
+
+    // check if repo exists
+    match File::open(&path) {
+        Err(_) => {
+            return Response::builder()
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .body(Body::from(
+                    json!({"message": "repo doesn't exist"}).to_string(),
+                ))
+                .unwrap()
+        }
+
+        Ok(_) => {}
+    };
+
+    match std::fs::remove_dir_all(&path) {
+        Ok(_) => Response::builder()
+            .body(Body::from(
+                json!({"message": "repo deleted successfully"}).to_string(),
+            ))
+            .unwrap(),
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(
+                    json!({"message": format!("failed to delete repo: {}", e)}).to_string(),
+                ))
+                .unwrap()
+        }
+    }
 }
