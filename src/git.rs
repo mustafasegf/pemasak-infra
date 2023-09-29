@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     env,
     ffi::OsStr,
     fs::File,
@@ -9,7 +10,7 @@ use std::{
 
 use axum::{
     extract::{Path, Query},
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
@@ -39,10 +40,9 @@ where
 }
 
 fn get_git_service(service: &str) -> &str {
-    if service.starts_with("git-") {
-        &service[4..]
-    } else {
-        ""
+    match service.starts_with("git-") {
+        true => &service[4..],
+        false => "",
     }
 }
 
@@ -95,13 +95,100 @@ impl GitServer for ResponseBuilder {
 //     }
 // }
 
-// pub async fn get_file_text(path: &str) -> impl Fn(&str) -> Response<Body> {
-//     move |path: &str| {
-//         let mut file = File::open(path).unwrap();
+pub async fn get_info_packs(Path(repo): Path<String>) -> Response<Body> {
+    let base = "./src/git-repo";
+    let path = format!("{}/{}/{}", base, repo, "objects/info/packs");
+
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
+    };
+
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    Response::builder()
+        .no_cache()
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .body(Body::from(contents))
+        .unwrap()
+}
+
+pub async fn get_loose_object(
+    Path((repo, head, hash)): Path<(String, String, String)>,
+) -> Response<Body> {
+    let base = "./src/git-repo";
+    let path = format!("{}/{}/objects/{}/{}", base, repo, head, hash);
+
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
+    };
+
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents).unwrap();
+
+    Response::builder()
+        .cache_forever()
+        .header("Content-Type", "application/x-git-loose-object")
+        .body(Body::from(contents))
+        .unwrap()
+}
+
+pub async fn get_pack_or_idx_file(Path((repo, file)): Path<(String, String)>) -> Response<Body> {
+    let base = "./src/git-repo";
+    let path = format!("{}/{}/objects/pack/{}", base, repo, file);
+
+    let mut file = match File::open(&path) {
+        Ok(file) => file,
+        Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
+    };
+
+    let res = Response::builder().cache_forever();
+
+    let res = match StdPath::new(&path).extension().and_then(|ext| ext.to_str()) {
+        Some("pack") => res.header("Content-Type", "application/x-git-packed-objects"),
+        Some("idx") => res.header("Content-Type", "application/x-git-packed-objects-toc"),
+        _ => return Response::builder().status(404).body(Body::empty()).unwrap(),
+    };
+
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents).unwrap();
+
+    res.body(Body::from(contents)).unwrap()
+}
+
+pub async fn get_file_text(dir: String, file: &str) -> Response<Body> {
+    let base = "./src/git-repo";
+    let path = format!("{}/{}/{}", base, dir, file);
+
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
+    };
+
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    Response::builder()
+        .no_cache()
+        .header("Content-Type", "text/plain")
+        .body(Body::from(contents))
+        .unwrap()
+}
+
+// pub fn get_file_text(path: String) -> impl Fn() -> Response<Body> + Send + Sync + 'static {
+//     move || {
+//         let mut file = match File::open(&path) {
+//             Ok(file) => file,
+//             Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
+//         };
+//
 //         let mut contents = String::new();
-//         file.read_to_string(&mut contents).unwrap();
+//         if file.read_to_string(&mut contents).is_err() {
+//             return Response::builder().status(500).body(Body::empty()).unwrap();
+//         }
+//
 //         Response::builder()
-//             .cache_forever()
+//             .status(200)
 //             .body(Body::from(contents))
 //             .unwrap()
 //     }
@@ -112,22 +199,25 @@ pub async fn recieve_pack_rpc(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    let mut res = service_rpc("receive-pack", &repo, headers, body).await;
+    let res = service_rpc("receive-pack", &repo, headers, body).await;
+
     let container_name = "go-example".to_string();
     let repo_src = "./src/git-repo/mustafa.git".to_string();
     let container_src = "./src/git-repo/mustafa.git/master".to_string();
 
-    if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
+    if let Err(_e) = git2::Repository::clone(&repo_src, &container_src) {
         // try to pull
         if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
             repo.find_remote("origin")
                 .and_then(|mut remote| remote.fetch(&["master"], None, None))
         }) {
             // try to delete the folder and clone again
+            println!("error -> {:#?}", e);
             std::fs::remove_dir_all(&container_src).unwrap();
 
             if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
                 // if this doesnt work then something is wrong
+                println!("error -> {:#?}", e);
                 return Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(Body::empty())
@@ -144,7 +234,8 @@ pub async fn recieve_pack_rpc(
             .unwrap();
     };
 
-    *res.body_mut() = Body::from("container run on go-example:localhost:3000");
+    println!("container run on go-example:localhost:3000");
+    // *res.body_mut() = Body::from("container run on go-example:localhost:3000");
     res
 }
 
@@ -157,9 +248,9 @@ pub async fn upload_pack_rpc(
 }
 
 pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
-    println!("repo -> {:#?}", repo);
-    println!("rpc -> {:#?}", rpc);
-    println!("headers -> {:#?}", headers);
+    // println!("repo -> {:#?}", repo);
+    // println!("rpc -> {:#?}", rpc);
+    // println!("headers -> {:#?}", headers);
 
     let wd = env::current_dir().unwrap();
 

@@ -45,9 +45,9 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         .await
         .unwrap();
 
-    for image in images {
-        println!("images -> {:#?}", image);
-    }
+    // for image in images {
+    //     println!("images -> {:#?}", image);
+    // }
 
     let _image = images.first().ok_or(anyhow::anyhow!("No image found"))?;
 

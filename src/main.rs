@@ -4,14 +4,17 @@ use anyhow::Result;
 use hyper::{client::HttpConnector, Body, Request, StatusCode, Uri};
 use pemasak_infra::{
     docker::REGISTERED_ROUTES,
-    git::{get_info_refs, recieve_pack_rpc, upload_pack_rpc},
+    git::{
+        get_file_text, get_info_packs, get_info_refs, get_loose_object, get_pack_or_idx_file,
+        recieve_pack_rpc, upload_pack_rpc,
+    },
 };
-use std::net::SocketAddr;
+use std::{fmt::Display, net::SocketAddr};
 
 type Client = hyper::client::Client<HttpConnector, Body>;
 
 use axum::{
-    extract::{DefaultBodyLimit, Host, State},
+    extract::{DefaultBodyLimit, Host, Path, State},
     response::Response,
     routing::{get, post},
     Router,
@@ -58,7 +61,7 @@ pub async fn fallback(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // let _container_name = "go-example".to_string();
+    let _container_name = "go-example".to_string();
     // let _image_name = "go-example:latest".to_string();
     // let _container_src = "./src/go-example".to_string();
     // let _network_name = "go-example-network".to_string();
@@ -75,7 +78,33 @@ async fn main() -> Result<()> {
         .route("/:repo/git-upload-pack", post(upload_pack_rpc))
         .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
         .route("/:repo/info/refs", get(get_info_refs))
-        .route("/:repo/HEAD", get(get_info_refs))
+        .route(
+            "/:repo/HEAD",
+            get(|Path(repo): Path<String>| async move { get_file_text(repo, "HEAD").await }),
+        )
+        .route(
+            "/:repo/objects/info/alternates",
+            get(|Path(repo): Path<String>| async move {
+                get_file_text(repo, "objects/info/alternates").await
+            }),
+        )
+        .route(
+            "/:repo/objects/info/http-alternates",
+            get(|Path(repo): Path<String>| async move {
+                get_file_text(repo, "objects/info/http-alternates").await
+            }),
+        )
+        .route("/:repo/objects/info/packs", get(get_info_packs))
+        .route(
+            "/:repo/objects/info/:file",
+            get(
+                |Path((repo, head, file)): Path<(String, String, String)>| async move {
+                    get_file_text(repo, format!("{}/{}", head, file).as_ref()).await
+                },
+            ),
+        )
+        .route("/:repo/objects/:head/:hash", get(get_loose_object))
+        .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
         .layer(DefaultBodyLimit::disable())
         .fallback(fallback)
         .with_state(client);
