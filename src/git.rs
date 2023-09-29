@@ -20,7 +20,7 @@ use tokio::{io::AsyncWriteExt, process::Command};
 
 use crate::{configuration::Settings, docker::build_docker, startup::AppState};
 
-pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
+pub fn router(state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route("/:repo/git-upload-pack", post(upload_pack_rpc))
         .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
@@ -230,11 +230,11 @@ pub async fn recieve_pack_rpc(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    let repo = match repo.ends_with(".git") {
+    let path = match repo.ends_with(".git") {
         true => format!("{base}/{repo}"),
         false => format!("{base}/{repo}.git"),
     };
-    let res = service_rpc("receive-pack", &repo, headers, body).await;
+    let res = service_rpc("receive-pack", &path, headers, body).await;
     res
 
     // let container_name = "go-example".to_string();
@@ -281,15 +281,15 @@ pub async fn upload_pack_rpc(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    let repo = match repo.ends_with(".git") {
+    let path = match repo.ends_with(".git") {
         true => format!("{base}/{repo}"),
         false => format!("{base}/{repo}.git"),
     };
 
-    service_rpc("upload-pack", &repo, headers, body).await
+    service_rpc("upload-pack", &path, headers, body).await
 }
 
-pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
+pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
     let mut response = Response::builder()
         .header("Content-Type", format!("application/x-git-{rpc}-result"))
         .body(Body::empty())
@@ -324,7 +324,7 @@ pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes)
         .collect::<Vec<_>>();
 
     let mut cmd = Command::new("git");
-    cmd.args(&[rpc, "--stateless-rpc", repo])
+    cmd.args(&[rpc, "--stateless-rpc", path])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -366,6 +366,7 @@ pub struct GitQuery {
 
 pub async fn get_info_refs(
     Path(repo): Path<String>,
+    State(AppState { base, .. }): State<AppState>,
     Query(GitQuery { service }): Query<GitQuery>,
     headers: HeaderMap,
 ) -> Response<Body> {
@@ -388,10 +389,13 @@ pub async fn get_info_refs(
         .chain([env])
         .collect::<Vec<_>>();
 
-    let full_repo_path = format!("{}/{}", "./src/git-repo", repo);
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}"),
+        false => format!("{base}/{repo}.git"),
+    };
 
     let out = match git_command(
-        &full_repo_path,
+        &path,
         &[service, "--stateless-rpc", "--advertise-refs", "."],
         envs,
     )
@@ -399,7 +403,7 @@ pub async fn get_info_refs(
     {
         Ok(out) => out,
         Err(e) => {
-            println!("error -> {:#?}", e);
+            tracing::error!("Failed to run git command: {}", e);
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())

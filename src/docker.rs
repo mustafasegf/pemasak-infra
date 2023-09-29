@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::RwLock};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use bollard::{
@@ -14,12 +14,6 @@ use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
-
-lazy_static::lazy_static! {
-    pub static ref REGISTERED_ROUTES: RwLock<HashMap<String, String>> = {
-        RwLock::new([("go-example".to_string(), "172.31.0.2:8080".to_string())].into() )
-    };
-}
 
 pub async fn build_docker(container_name: &str, container_src: &str) -> Result<()> {
     let image_name = format!("{}:latest", container_name);
@@ -45,10 +39,6 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         .await
         .unwrap();
 
-    // for image in images {
-    //     println!("images -> {:#?}", image);
-    // }
-
     let _image = images.first().ok_or(anyhow::anyhow!("No image found"))?;
 
     // remove container if it exists
@@ -63,7 +53,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         .collect::<Vec<_>>();
 
     for container in &containers {
-        println!("container -> {:?}", container.names);
+        tracing::info!("container -> {:?}", container.names);
     }
 
     if !containers.is_empty() {
@@ -94,7 +84,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         )
         .await?;
 
-    println!("create response-> {:#?}", res);
+    tracing::info!("create response-> {:#?}", res);
 
     // check if network exists
     let network = docker
@@ -107,7 +97,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
 
     let network = match network {
         Some(n) => {
-            println!("Existing network id -> {:?}", n.id);
+            tracing::info!("Existing network id -> {:?}", n.id);
             n
         }
         None => {
@@ -116,7 +106,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
                 ..Default::default()
             };
             let res = docker.create_network(options).await?;
-            println!("create network response-> {:#?}", res);
+            tracing::info!("create network response-> {:#?}", res);
 
             docker
                 .list_networks(Some(ListNetworksOptions {
@@ -140,7 +130,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         )
         .await?;
 
-    println!("connect network response-> {:#?}", res);
+    tracing::info!("connect network response-> {:#?}", res);
 
     docker
         .start_container(&container_name, None::<StartContainerOptions<String>>)
@@ -157,14 +147,15 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         )
         .await?;
 
-    println!(
-        "ipv4 address -> {:#?}",
-        network_inspect
-            .containers
-            .unwrap()
-            .get(&res.id)
-            .unwrap()
-            .ipv4_address
-    );
+    let ip = &network_inspect
+        .containers
+        .unwrap()
+        .get(&res.id)
+        .unwrap()
+        .ipv4_address
+        .clone()
+        .unwrap();
+
+    tracing::info!(ip);
     Ok(())
 }
