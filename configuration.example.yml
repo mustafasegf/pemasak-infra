@@ -8,7 +8,9 @@ application:
 database:
   user: "postgres"
   password: "password"
-  host: "127.0.0.1"
+  host: "localhost"
   port: 5432
   name: "dev"
   timeout: 20
+git:
+  base: "./src/git-repo"

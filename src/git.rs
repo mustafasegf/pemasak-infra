@@ -1,5 +1,4 @@
 use std::{
-    env,
     ffi::OsStr,
     fs::File,
     io::Read,
@@ -8,7 +7,7 @@ use std::{
 };
 
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query},
+    extract::{DefaultBodyLimit, Path, Query, State},
     response::Response,
     routing::{get, post},
     Router,
@@ -18,7 +17,6 @@ use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, Heade
 use anyhow::Result;
 use serde::Deserialize;
 use tokio::{io::AsyncWriteExt, process::Command};
-use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::{configuration::Settings, docker::build_docker, startup::AppState};
 
@@ -29,26 +27,26 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
         .route("/:repo/info/refs", get(get_info_refs))
         .route(
             "/:repo/HEAD",
-            get(|Path(repo): Path<String>| async move { get_file_text(repo, "HEAD").await }),
+            get(|Path(repo): Path<String>, State(AppState { base, .. }): State<AppState>| async move { get_file_text(&base, &repo, "HEAD").await }),
         )
         .route(
             "/:repo/objects/info/alternates",
-            get(|Path(repo): Path<String>| async move {
-                get_file_text(repo, "objects/info/alternates").await
+            get(|Path(repo): Path<String>, State(AppState { base, .. }): State<AppState>| async move {
+                get_file_text(&base, &repo, "objects/info/alternates").await
             }),
         )
         .route(
             "/:repo/objects/info/http-alternates",
-            get(|Path(repo): Path<String>| async move {
-                get_file_text(repo, "objects/info/http-alternates").await
+            get(|Path(repo): Path<String>, State(AppState { base, .. }): State<AppState>| async move {
+                get_file_text(&base, &repo, "objects/info/http-alternates").await
             }),
         )
         .route("/:repo/objects/info/packs", get(get_info_packs))
         .route(
             "/:repo/objects/info/:file",
             get(
-                |Path((repo, head, file)): Path<(String, String, String)>| async move {
-                    get_file_text(repo, format!("{}/{}", head, file).as_ref()).await
+                |Path((repo, head, file)): Path<(String, String, String)>,State(AppState { base, .. }): State<AppState>| async move {
+                    get_file_text(&base, &repo, format!("{}/{}", head, file).as_ref()).await
                 },
             ),
         )
@@ -133,9 +131,14 @@ impl GitServer for ResponseBuilder {
 //     }
 // }
 
-pub async fn get_info_packs(Path(repo): Path<String>) -> Response<Body> {
-    let base = "./src/git-repo";
-    let path = format!("{}/{}/{}", base, repo, "objects/info/packs");
+pub async fn get_info_packs(
+    Path(repo): Path<String>,
+    State(AppState { base, .. }): State<AppState>,
+) -> Response<Body> {
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}/objects/info/packs"),
+        false => format!("{base}/{repo}.git/objects/info/packs"),
+    };
 
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -153,10 +156,12 @@ pub async fn get_info_packs(Path(repo): Path<String>) -> Response<Body> {
 
 pub async fn get_loose_object(
     Path((repo, head, hash)): Path<(String, String, String)>,
+    State(AppState { base, .. }): State<AppState>,
 ) -> Response<Body> {
-    let base = "./src/git-repo";
-    let path = format!("{}/{}/objects/{}/{}", base, repo, head, hash);
-
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}/objects/{head}/{hash}"),
+        false => format!("{base}/{repo}.git/objects/{head}{hash}"),
+    };
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
@@ -172,10 +177,14 @@ pub async fn get_loose_object(
         .unwrap()
 }
 
-pub async fn get_pack_or_idx_file(Path((repo, file)): Path<(String, String)>) -> Response<Body> {
-    let base = "./src/git-repo";
-    let path = format!("{}/{}/objects/pack/{}", base, repo, file);
-
+pub async fn get_pack_or_idx_file(
+    Path((repo, file)): Path<(String, String)>,
+    State(AppState { base, .. }): State<AppState>,
+) -> Response<Body> {
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}/objects/pack/{file}"),
+        false => format!("{base}/{repo}.git/objects/pack{file}"),
+    };
     let mut file = match File::open(&path) {
         Ok(file) => file,
         Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
@@ -195,9 +204,11 @@ pub async fn get_pack_or_idx_file(Path((repo, file)): Path<(String, String)>) ->
     res.body(Body::from(contents)).unwrap()
 }
 
-pub async fn get_file_text(dir: String, file: &str) -> Response<Body> {
-    let base = "./src/git-repo";
-    let path = format!("{}/{}/{}", base, dir, file);
+pub async fn get_file_text(base: &str, repo: &str, file: &str) -> Response<Body> {
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}/{file}"),
+        false => format!("{base}/{repo}.git/{file}"),
+    };
 
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -213,88 +224,72 @@ pub async fn get_file_text(dir: String, file: &str) -> Response<Body> {
         .unwrap()
 }
 
-// pub fn get_file_text(path: String) -> impl Fn() -> Response<Body> + Send + Sync + 'static {
-//     move || {
-//         let mut file = match File::open(&path) {
-//             Ok(file) => file,
-//             Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
-//         };
-//
-//         let mut contents = String::new();
-//         if file.read_to_string(&mut contents).is_err() {
-//             return Response::builder().status(500).body(Body::empty()).unwrap();
-//         }
-//
-//         Response::builder()
-//             .status(200)
-//             .body(Body::from(contents))
-//             .unwrap()
-//     }
-// }
-
 pub async fn recieve_pack_rpc(
     Path(repo): Path<String>,
+    State(AppState { base, .. }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
+    let repo = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}"),
+        false => format!("{base}/{repo}.git"),
+    };
     let res = service_rpc("receive-pack", &repo, headers, body).await;
-
-    let container_name = "go-example".to_string();
-    let repo_src = "./src/git-repo/mustafa.git".to_string();
-    let container_src = "./src/git-repo/mustafa.git/master".to_string();
-
-    if let Err(_e) = git2::Repository::clone(&repo_src, &container_src) {
-        // try to pull
-        if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
-            repo.find_remote("origin")
-                .and_then(|mut remote| remote.fetch(&["master"], None, None))
-        }) {
-            // try to delete the folder and clone again
-            println!("error -> {:#?}", e);
-            std::fs::remove_dir_all(&container_src).unwrap();
-
-            if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
-                // if this doesnt work then something is wrong
-                println!("error -> {:#?}", e);
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap();
-            };
-        };
-    };
-
-    if let Err(e) = build_docker(&container_name, &container_src).await {
-        println!("error -> {:#?}", e);
-        return Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::empty())
-            .unwrap();
-    };
-
-    println!("container run on go-example:localhost:3000");
-    // *res.body_mut() = Body::from("container run on go-example:localhost:3000");
     res
+
+    // let container_name = "go-example".to_string();
+    // let repo_src = "./src/git-repo/mustafa.git".to_string();
+    // let container_src = "./src/git-repo/mustafa.git/master".to_string();
+    //
+    // if let Err(_e) = git2::Repository::clone(&repo_src, &container_src) {
+    //     // try to pull
+    //     if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
+    //         repo.find_remote("origin")
+    //             .and_then(|mut remote| remote.fetch(&["master"], None, None))
+    //     }) {
+    //         // try to delete the folder and clone again
+    //         println!("error -> {:#?}", e);
+    //         std::fs::remove_dir_all(&container_src).unwrap();
+    //
+    //         if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
+    //             // if this doesnt work then something is wrong
+    //             println!("error -> {:#?}", e);
+    //             return Response::builder()
+    //                 .status(StatusCode::INTERNAL_SERVER_ERROR)
+    //                 .body(Body::empty())
+    //                 .unwrap();
+    //         };
+    //     };
+    // };
+    //
+    // if let Err(e) = build_docker(&container_name, &container_src).await {
+    //     println!("error -> {:#?}", e);
+    //     return Response::builder()
+    //         .status(StatusCode::INTERNAL_SERVER_ERROR)
+    //         .body(Body::empty())
+    //         .unwrap();
+    // };
+    //
+    // println!("container run on go-example:localhost:3000");
+    //
+    // res
 }
 
 pub async fn upload_pack_rpc(
     Path(repo): Path<String>,
+    State(AppState { base, .. }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
+    let repo = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}"),
+        false => format!("{base}/{repo}.git"),
+    };
+
     service_rpc("upload-pack", &repo, headers, body).await
 }
 
 pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
-    // println!("repo -> {:#?}", repo);
-    // println!("rpc -> {:#?}", rpc);
-    // println!("headers -> {:#?}", headers);
-
-    let wd = env::current_dir().unwrap();
-
-    let full_repo_path = format!("{}/{}/{}", wd.to_str().unwrap(), "src/git-repo", repo);
-    println!("full_repo_path -> {:#?}", full_repo_path);
-
     let mut response = Response::builder()
         .header("Content-Type", format!("application/x-git-{rpc}-result"))
         .body(Body::empty())
@@ -323,26 +318,23 @@ pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes)
         _ => ("".to_string(), "".to_string()),
     };
 
-    println!("env -> {:#?}", env);
-
     let envs = std::env::vars()
         .into_iter()
         .chain([env])
         .collect::<Vec<_>>();
 
     let mut cmd = Command::new("git");
-    cmd.args(&[rpc, "--stateless-rpc", full_repo_path.as_str()])
+    cmd.args(&[rpc, "--stateless-rpc", repo])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .envs(envs);
 
     let mut child = cmd.spawn().expect("failed to spawn command");
-
     let mut stdin = child.stdin.take().expect("failed to get stdin");
 
     if let Err(e) = stdin.write_all(&body).await {
-        eprintln!("Failed to write to stdin: {}", e);
+        tracing::error!("Failed to write to stdin: {}", e);
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         return response;
     }
@@ -354,13 +346,13 @@ pub async fn service_rpc(rpc: &str, repo: &str, headers: HeaderMap, body: Bytes)
         .expect("Failed to read stdout/stderr");
 
     if !output.status.success() {
-        eprintln!("Command failed: {:?}", output.status);
-        eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+        tracing::error!("Command failed: {:?}", output.status);
+        tracing::error!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
     } else {
-        println!("Command succeeded!");
-        println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
-        println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+        tracing::info!("Command succeeded!");
+        tracing::info!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        tracing::info!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
         *response.body_mut() = Body::from(output.stdout);
     }
 
@@ -391,15 +383,10 @@ pub async fn get_info_refs(
         _ => ("".to_string(), "".to_string()),
     };
 
-    println!("env -> {:#?}", env);
-
     let envs = std::env::vars()
         .into_iter()
         .chain([env])
         .collect::<Vec<_>>();
-
-    println!("repo -> {:#?}", repo);
-    println!("headers -> {:#?}", headers);
 
     let full_repo_path = format!("{}/{}", "./src/git-repo", repo);
 

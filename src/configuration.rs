@@ -12,6 +12,7 @@ use sqlx::postgres::PgConnectOptions;
 pub struct Settings {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
+    pub git: GitSettings,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -34,19 +35,25 @@ pub struct DatabaseSettings {
     pub timeout: u64,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct GitSettings {
+    pub base: String,
+}
+
 pub fn get_configuration() -> Result<Settings, ConfigError> {
     Config::builder()
-        .set_default("application.host", "127.0.0.1")?
+        .set_default("application.host", "localhost")?
         .set_default("application.port", 8080)?
-        .set_default("application.body_limit", "0")?
+        .set_default("application.body_limit", "25mib")?
         .set_default("application.auth", true)?
         .set_default("application.ipv6", false)?
         .set_default("database.user", "postgres")?
         .set_default("database.password", "postgres")?
-        .set_default("database.host", "127.0.0.1")?
+        .set_default("database.host", "localhost")?
         .set_default("database.port", 5432)?
         .set_default("database.name", "postgres")?
         .set_default("database.timeout", 20)?
+        .set_default("git.base", "./src/git-repo")?
         .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
         .build()?
@@ -79,7 +86,7 @@ impl Settings {
 
     pub fn body_limit(&self) -> usize {
         Byte::from_str(&self.application.body_limit)
-            .unwrap_or(Byte::from_bytes(0))
+            .unwrap_or(Byte::from_bytes(25 * 1024 * 1024))
             .get_bytes() as usize
     }
 }
