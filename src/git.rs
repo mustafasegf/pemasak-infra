@@ -371,11 +371,32 @@ pub async fn get_info_refs(
     headers: HeaderMap,
 ) -> Response<Body> {
     let service = get_git_service(&service);
+
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{repo}"),
+        false => format!("{base}/{repo}.git"),
+    };
     if service != "receive-pack" && service != "upload-pack" {
-        // TODO: change to update server into and return file
+        git_command(
+            &path,
+            &["update-server-info"],
+            std::iter::empty::<(String, String)>(),
+        )
+        .await
+        .unwrap();
+
+        let mut file = match File::open(path) {
+            Ok(file) => file,
+            Err(_) => return Response::builder().status(404).body(Body::empty()).unwrap(),
+        };
+
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+
         return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
+            .no_cache()
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .body(Body::from(contents))
             .unwrap();
     }
 
@@ -388,11 +409,6 @@ pub async fn get_info_refs(
         .into_iter()
         .chain([env])
         .collect::<Vec<_>>();
-
-    let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}"),
-        false => format!("{base}/{repo}.git"),
-    };
 
     let out = match git_command(
         &path,
