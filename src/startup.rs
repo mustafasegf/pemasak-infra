@@ -3,6 +3,7 @@ use axum::Router;
 
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
+use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
 
 use std::net::TcpListener;
@@ -16,7 +17,7 @@ pub struct AppState {
     pub auth: bool,
     pub domain: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
-    // pub pool: PgPool,
+    pub pool: PgPool,
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {

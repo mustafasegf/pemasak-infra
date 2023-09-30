@@ -1,5 +1,6 @@
 use hyper::{client::HttpConnector, Body};
 use pemasak_infra::{configuration, startup, telemetry};
+use sqlx::postgres::PgPoolOptions;
 use std::{net::TcpListener, process};
 
 type Client = hyper::client::Client<HttpConnector, Body>;
@@ -15,25 +16,25 @@ async fn main() {
         }
     };
 
-    // let pool = match PgPoolOptions::new()
-    //     .acquire_timeout(std::time::Duration::from_secs(config.database.timeout))
-    //     .connect_with(config.connection_options())
-    //     .await
-    // {
-    //     Ok(pool) => pool,
-    //     Err(err) => {
-    //         tracing::error!("Failed to connect to Postgres: {}", err);
-    //         process::exit(1);
-    //     }
-    // };
-    //
+    let pool = match PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_secs(config.database.timeout))
+        .connect_with(config.connection_options())
+        .await
+    {
+        Ok(pool) => pool,
+        Err(err) => {
+            tracing::error!("Failed to connect to Postgres: {}", err);
+            process::exit(1);
+        }
+    };
+
 
     let state = startup::AppState {
         base: config.git.base.clone(),
         auth: config.application.auth,
         client: Client::new(),
         domain: config.domain(),
-        // pool,
+        pool,
     };
 
     let addr_string = config.address_string();
