@@ -1,0 +1,25 @@
+version: "3.8"
+services:
+  db:
+    container_name: db-pemasak
+    image: postgres:16.0-alpine3.18
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    networks:
+      - pemasak
+    ports:
+      - "${DB_PORT}:5432"
+
+
+volumes:
+  db-data:
+    driver: local
+
+networks:
+  pemasak:
+    driver: bridge
