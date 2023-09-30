@@ -63,7 +63,7 @@ pub async fn fallback(
 
     // let map = REGISTERED_ROUTES.read().unwrap();
     // let route = map.get(sub_domain);
-    let route = Some("172.31.0.2:8080".to_string());
+    let route = Some("172.31.0.2:80".to_string());
 
     match route {
         Some(route) => {
