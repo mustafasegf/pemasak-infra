@@ -20,7 +20,8 @@ use serde_json::json;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::{configuration::Settings, docker::build_docker, startup::AppState};
+use crate::{configuration::Settings, startup::AppState};
+use crate::docker::build_docker;
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
     Router::new()
@@ -234,44 +235,43 @@ pub async fn recieve_pack_rpc(
         false => format!("{base}/{repo}.git"),
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
-    res
 
-    // let container_name = "go-example".to_string();
-    // let repo_src = "./src/git-repo/mustafa.git".to_string();
-    // let container_src = "./src/git-repo/mustafa.git/master".to_string();
-    //
-    // if let Err(_e) = git2::Repository::clone(&repo_src, &container_src) {
-    //     // try to pull
-    //     if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
-    //         repo.find_remote("origin")
-    //             .and_then(|mut remote| remote.fetch(&["master"], None, None))
-    //     }) {
-    //         // try to delete the folder and clone again
-    //         println!("error -> {:#?}", e);
-    //         std::fs::remove_dir_all(&container_src).unwrap();
-    //
-    //         if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
-    //             // if this doesnt work then something is wrong
-    //             println!("error -> {:#?}", e);
-    //             return Response::builder()
-    //                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-    //                 .body(Body::empty())
-    //                 .unwrap();
-    //         };
-    //     };
-    // };
-    //
-    // if let Err(e) = build_docker(&container_name, &container_src).await {
-    //     println!("error -> {:#?}", e);
-    //     return Response::builder()
-    //         .status(StatusCode::INTERNAL_SERVER_ERROR)
-    //         .body(Body::empty())
-    //         .unwrap();
-    // };
-    //
-    // println!("container run on go-example:localhost:3000");
-    //
-    // res
+    let container_name = "go-example".to_string();
+    let repo_src = "./src/git-repo/go-example".to_string();
+    let container_src = "./src/git-repo/go-example.git/master".to_string();
+
+    if let Err(_e) = git2::Repository::clone(&repo_src, &container_src) {
+        // try to pull
+        if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
+            repo.find_remote("origin")
+                .and_then(|mut remote| remote.fetch(&["master"], None, None))
+        }) {
+            // try to delete the folder and clone again
+            println!("error -> {:#?}", e);
+            std::fs::remove_dir_all(&container_src).unwrap();
+
+            if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
+                // if this doesnt work then something is wrong
+                println!("error -> {:#?}", e);
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::empty())
+                    .unwrap();
+            };
+        };
+    };
+
+    if let Err(e) = build_docker(&container_name, &container_src).await {
+        println!("error -> {:#?}", e);
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::empty())
+            .unwrap();
+    };
+
+    println!("container run on go-example:localhost:3000");
+
+    res
 }
 
 pub async fn upload_pack_rpc(
