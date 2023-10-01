@@ -27,7 +27,8 @@ use crate::{configuration::Settings, startup::AppState};
 
 pub async fn router(state: AppState, _config: &Settings) -> Router<AppState, Body> {
     let pool = state.pool.clone();
-    let session_config = SessionConfig::default().with_table_name("axum_sessions");
+    let session_config = SessionConfig::default();
+
     let auth_config = AuthConfig::<Uuid>::default().with_anonymous_user_id(Some(Uuid::default()));
         let session_store =
         SessionStore::<SessionPgPool>::new(Some(pool.clone().into()), session_config)

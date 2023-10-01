@@ -28,6 +28,12 @@ CREATE TABLE user_permissions (
   token      VARCHAR(256) NOT NULL
 );
 
+CREATE TABLE sessions (
+  id VARCHAR(128) NOT NULL PRIMARY KEY,
+  expires INTEGER NULL,
+  session TEXT NOT NULL
+);
+
 CREATE TABLE owner (
   id          uuid          NOT NULL,
   name        TEXT          NOT NULL,
