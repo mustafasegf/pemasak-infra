@@ -39,13 +39,21 @@
       in
       with pkgs;
       {
+        checks = {
+          inherit bin;
+        };
+
         packages =
           {
             inherit bin;
             default = bin;
           };
-        devShells.default = mkShell {
-          inputsFrom = [ bin ];
+        devShells.default = craneLib.devShell {
+          checks = self.checks.${system};
+          packages = with pkgs; [
+            bacon
+            atlas
+          ];
         };
       }
     );
