@@ -25,40 +25,41 @@ use crate::docker::build_docker;
 use crate::{configuration::Settings, startup::AppState};
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
+    // TODO: add auth check
     Router::new()
-        .route("/:repo/git-upload-pack", post(upload_pack_rpc))
-        .route("/:repo/git-receive-pack", post(recieve_pack_rpc))
-        .route("/:repo/info/refs", get(get_info_refs))
+        .route("/:owner/:repo/git-upload-pack", post(upload_pack_rpc))
+        .route("/:owner/:repo/git-receive-pack", post(recieve_pack_rpc))
+        .route("/:owner/:repo/info/refs", get(get_info_refs))
         .route(
-            "/:repo/HEAD",
-            get(|Path(repo): Path<String>, State(AppState { base, .. }): State<AppState>| async move { get_file_text(&base, &repo, "HEAD").await }),
+            "/:owner/:repo/HEAD",
+            get(|Path((owner, repo)): Path<(String, String)>, State(AppState { base, .. }): State<AppState>| async move { get_file_text(&base, &owner, &repo, "HEAD").await }),
         )
         .route(
-            "/:repo/objects/info/alternates",
-            get(|Path(repo): Path<String>, State(AppState { base, .. }): State<AppState>| async move {
-                get_file_text(&base, &repo, "objects/info/alternates").await
+            "/:owner/:repo/objects/info/alternates",
+            get(|Path((owner, repo)): Path<(String, String)>, State(AppState { base, .. }): State<AppState>| async move {
+                get_file_text(&base, &owner, &repo, "objects/info/alternates").await
             }),
         )
         .route(
-            "/:repo/objects/info/http-alternates",
-            get(|Path(repo): Path<String>, State(AppState { base, .. }): State<AppState>| async move {
-                get_file_text(&base, &repo, "objects/info/http-alternates").await
+            "/:owner/:repo/objects/info/http-alternates",
+            get(|Path((owner, repo)): Path<(String, String)>, State(AppState { base, .. }): State<AppState>| async move {
+                get_file_text(&base, &owner, &repo, "objects/info/http-alternates").await
             }),
         )
-        .route("/:repo/objects/info/packs", get(get_info_packs))
+        .route("/:owner/:repo/objects/info/packs", get(get_info_packs))
         .route(
-            "/:repo/objects/info/:file",
+            "/:owner/:repo/objects/info/:file",
             get(
-                |Path((repo, head, file)): Path<(String, String, String)>,State(AppState { base, .. }): State<AppState>| async move {
-                    get_file_text(&base, &repo, format!("{}/{}", head, file).as_ref()).await
+                |Path((owner, repo, head, file)): Path<(String, String, String, String)>,State(AppState { base, .. }): State<AppState>| async move {
+                    get_file_text(&base, &owner, &repo, format!("{}/{}", head, file).as_ref()).await
                 },
             ),
         )
-        .route("/:repo/objects/:head/:hash", get(get_loose_object))
-        .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
+        .route("/:owner/:repo/objects/:head/:hash", get(get_loose_object))
+        .route("/:owner/:repo/objects/packs/:file", get(get_pack_or_idx_file))
 
         // not git server related
-        .route_with_tsr("/:repo", post(create_new_repo).delete(delete_repo))
+        .route_with_tsr("/:owner/:repo", post(create_new_repo).delete(delete_repo))
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(config.body_limit()))
         .with_state(state)
@@ -204,10 +205,10 @@ pub async fn get_pack_or_idx_file(
     res.body(Body::from(contents)).unwrap()
 }
 
-pub async fn get_file_text(base: &str, repo: &str, file: &str) -> Response<Body> {
+pub async fn get_file_text(base: &str, owner: &str, repo: &str, file: &str) -> Response<Body> {
     let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}/{file}"),
-        false => format!("{base}/{repo}.git/{file}"),
+        true => format!("{base}/{owner}/{repo}/{file}"),
+        false => format!("{base}/{owner}/{repo}.git/{file}"),
     };
 
     let mut file = match File::open(path) {
@@ -225,14 +226,14 @@ pub async fn get_file_text(base: &str, repo: &str, file: &str) -> Response<Body>
 }
 
 pub async fn recieve_pack_rpc(
-    Path(repo): Path<String>,
+    Path((owner, repo)): Path<(String, String)>,
     State(AppState { base, .. }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
     let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}"),
-        false => format!("{base}/{repo}.git"),
+        true => format!("{base}/{owner}/{repo}"),
+        false => format!("{base}/{owner}/{repo}.git"),
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
 
@@ -275,14 +276,14 @@ pub async fn recieve_pack_rpc(
 }
 
 pub async fn upload_pack_rpc(
-    Path(repo): Path<String>,
+    Path((owner, repo)): Path<(String, String)>,
     State(AppState { base, .. }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
     let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}"),
-        false => format!("{base}/{repo}.git"),
+        true => format!("{base}/{owner}/{repo}"),
+        false => format!("{base}/{owner}/{repo}.git"),
     };
 
     service_rpc("upload-pack", &path, headers, body).await
@@ -361,7 +362,7 @@ pub struct GitQuery {
 }
 
 pub async fn get_info_refs(
-    Path(repo): Path<String>,
+    Path((owner, repo)): Path<(String, String)>,
     State(AppState { base, .. }): State<AppState>,
     Query(GitQuery { service }): Query<GitQuery>,
     headers: HeaderMap,
@@ -369,8 +370,8 @@ pub async fn get_info_refs(
     let service = get_git_service(&service);
 
     let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}"),
-        false => format!("{base}/{repo}.git"),
+        true => format!("{base}/{owner}/{repo}"),
+        false => format!("{base}/{owner}/{repo}.git"),
     };
     if service != "receive-pack" && service != "upload-pack" {
         git_command(
@@ -434,13 +435,13 @@ pub async fn get_info_refs(
 }
 
 pub async fn create_new_repo(
-    Path(repo): Path<String>,
+    Path((owner, repo)): Path<(String, String)>,
     State(AppState { base, .. }): State<AppState>,
 ) -> Response<Body> {
     // check if repo exists
     let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}"),
-        false => format!("{base}/{repo}.git"),
+        true => format!("{base}/{owner}/{repo}"),
+        false => format!("{base}/{owner}/{repo}.git"),
     };
 
     if File::open(&path).is_ok() {
@@ -466,12 +467,12 @@ pub async fn create_new_repo(
 }
 
 pub async fn delete_repo(
-    Path(repo): Path<String>,
+    Path((owner, repo)): Path<(String, String)>,
     State(AppState { base, .. }): State<AppState>,
 ) -> Response<Body> {
     let path = match repo.ends_with(".git") {
-        true => format!("{base}/{repo}"),
-        false => format!("{base}/{repo}.git"),
+        true => format!("{base}/{owner}/{repo}"),
+        false => format!("{base}/{owner}/{repo}.git"),
     };
 
     // check if repo exists
