@@ -9,9 +9,10 @@ use std::{
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     response::Response,
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
+use axum_extra::routing::RouterExt;
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
@@ -20,8 +21,8 @@ use serde_json::json;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::{configuration::Settings, startup::AppState};
 use crate::docker::build_docker;
+use crate::{configuration::Settings, startup::AppState};
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
     Router::new()
@@ -57,8 +58,7 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
         .route("/:repo/objects/packs/:file", get(get_pack_or_idx_file))
 
         // not git server related
-        .route("/:repo", post(create_new_repo))
-        .route("/:repo", delete(delete_repo))
+        .route_with_tsr("/:repo", post(create_new_repo).delete(delete_repo))
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(config.body_limit()))
         .with_state(state)
