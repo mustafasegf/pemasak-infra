@@ -13,6 +13,7 @@ use axum::{
     Router,
 };
 use axum_extra::routing::RouterExt;
+use git2::Repository;
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
@@ -239,6 +240,66 @@ pub async fn get_file_text(base: &str, owner: &str, repo: &str, file: &str) -> R
         .unwrap()
 }
 
+fn fast_forward(
+    repo: &Repository,
+    lb: &mut git2::Reference,
+    rc: &git2::AnnotatedCommit,
+) -> Result<(), git2::Error> {
+    let name = match lb.name() {
+        Some(s) => s.to_string(),
+        None => String::from_utf8_lossy(lb.name_bytes()).to_string(),
+    };
+    let msg = format!("Fast-Forward: Setting {} to id: {}", name, rc.id());
+    println!("{}", msg);
+    lb.set_target(rc.id(), &msg)?;
+    repo.set_head(&name)?;
+    repo.checkout_head(Some(
+        git2::build::CheckoutBuilder::default()
+            // For some reason the force is required to make the working directory actually get updated
+            // I suspect we should be adding some logic to handle dirty working directory states
+            // but this is just an example so maybe not.
+            .force(),
+    ))?;
+    Ok(())
+}
+
+fn normal_merge(
+    repo: &Repository,
+    local: &git2::AnnotatedCommit,
+    remote: &git2::AnnotatedCommit,
+) -> Result<(), git2::Error> {
+    let local_tree = repo.find_commit(local.id())?.tree()?;
+    let remote_tree = repo.find_commit(remote.id())?.tree()?;
+    let ancestor = repo
+        .find_commit(repo.merge_base(local.id(), remote.id())?)?
+        .tree()?;
+    let mut idx = repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?;
+
+    if idx.has_conflicts() {
+        println!("Merge conflicts detected...");
+        repo.checkout_index(Some(&mut idx), None)?;
+        return Ok(());
+    }
+    let result_tree = repo.find_tree(idx.write_tree_to(repo)?)?;
+    // now create the merge commit
+    let msg = format!("Merge: {} into {}", remote.id(), local.id());
+    let sig = repo.signature()?;
+    let local_commit = repo.find_commit(local.id())?;
+    let remote_commit = repo.find_commit(remote.id())?;
+    // Do our merge commit and set current branch head to that commit.
+    let _merge_commit = repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        &msg,
+        &result_tree,
+        &[&local_commit, &remote_commit],
+    )?;
+    // Set working tree to match head.
+    repo.checkout_head(None)?;
+    Ok(())
+}
+
 pub async fn recieve_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
     State(AppState { base, .. }): State<AppState>,
@@ -253,14 +314,60 @@ pub async fn recieve_pack_rpc(
     let container_src = format!("{path}/master");
     let container_name = repo.trim_end_matches(".git");
 
+    // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {
+        tracing::info!("repo already cloned");
         // try to pull
-        if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
-            repo.find_remote("origin")
-                .and_then(|mut remote| remote.fetch(&["master"], None, None))
-        }) {
+        let repo = git2::Repository::open(&container_src).unwrap();
+        let mut fo = git2::FetchOptions::new();
+        fo.download_tags(git2::AutotagOption::All);
+
+        let mut remote = repo.find_remote("origin").unwrap();
+        remote.fetch(&["master"], Some(&mut fo), None).unwrap();
+
+        let fetch_head = repo.find_reference("FETCH_HEAD").unwrap();
+        let fetch_commit = repo.reference_to_annotated_commit(&fetch_head).unwrap();
+
+        let analysis = repo.merge_analysis(&[&fetch_commit]).unwrap();
+
+        if analysis.0.is_fast_forward() {
+            // fast forward
+            tracing::info!("fast forward");
+            let refname = "refs/heads/master";
+            match repo.find_reference(&refname) {
+                Ok(mut r) => {
+                    fast_forward(&repo, &mut r, &fetch_commit).unwrap();
+                }
+                Err(_) => {
+                    // The branch doesn't exist so just set the reference to the
+                    // commit directly. Usually this is because you are pulling
+                    // into an empty repository.
+                    repo.reference(
+                        &refname,
+                        fetch_commit.id(),
+                        true,
+                        &format!("Setting {} to master", fetch_commit.id()),
+                    )
+                    .unwrap();
+                    repo.set_head(&refname).unwrap();
+                    repo.checkout_head(Some(
+                        git2::build::CheckoutBuilder::default()
+                            .allow_conflicts(true)
+                            .conflict_style_merge(true)
+                            .force(),
+                    ))
+                    .unwrap();
+                }
+            };
+        } else {
+            // merge
+            tracing::info!("merge");
+            repo.merge(&[&fetch_commit], None, None).unwrap();
+        };
+
+        if false {
             // try to delete the folder and clone again
-            println!("error -> {:#?}", e);
+            // tracing::error!("can't fetch repo -> {:#?}", e);
             std::fs::remove_dir_all(&container_src).unwrap();
 
             if let Err(e) = git2::Repository::clone(&path, &container_src) {
