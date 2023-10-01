@@ -1,4 +1,5 @@
-h1:5G3GhPx4QOIv5UQ1PGdgXZ+H8CQL3BHAmqykr4Vs+hI=
+h1:kp6xteCAAu/WabSsaJNz5aBLhFFzuq40U8fnVoMqkhQ=
 20230930052633_create_user.sql h1:HfRrXTuRy8R1aJL7WdOwyGabyreBQiQOQ6NzbrJlLj4=
 20230930052744_api_token.sql h1:O1VdzSwZj64om7bY0wXqrTXVnAQKHD3mjxnohiMX0PU=
 20230930115134_owner_and_domains.sql h1:j/CLrdhELBoS/GBN+xXTr/1geM/t1ZKFCxjYXJz8asU=
+20231001122433_user_permissions.sql h1:lBEir0ANA5svYSDDkYxYw+d8Qt+YH0xyLVvX0g5abGQ=

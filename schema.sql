@@ -23,6 +23,11 @@ CREATE TABLE api_token (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE TABLE user_permissions (
+  user_id    uuid NOT NULL,
+  token      VARCHAR(256) NOT NULL
+);
+
 CREATE TABLE owner (
   id          uuid          NOT NULL,
   name        TEXT          NOT NULL,
