@@ -47,6 +47,18 @@
           {
             inherit bin;
             default = bin;
+
+            # nix run .#dev 
+            dev = pkgs.writeShellScriptBin "dev" ''
+              cd "$(git rev-parse --show-toplevel)"
+              RUST_LOG=info cargo run -q 2>&1 | bunyan
+            '';
+
+            # nix run .#watch 
+            watch = pkgs.writeShellScriptBin "dev" ''
+              cd "$(git rev-parse --show-toplevel)"
+              RUST_LOG=info cargo run -q 2>&1 | bunyan
+            '';
           };
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
