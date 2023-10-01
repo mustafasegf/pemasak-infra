@@ -32,32 +32,46 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
         .route("/:owner/:repo/info/refs", get(get_info_refs))
         .route(
             "/:owner/:repo/HEAD",
-            get(|Path((owner, repo)): Path<(String, String)>, State(AppState { base, .. }): State<AppState>| async move { get_file_text(&base, &owner, &repo, "HEAD").await }),
+            get(
+                |Path((owner, repo)): Path<(String, String)>,
+                 State(AppState { base, .. }): State<AppState>| async move {
+                    get_file_text(&base, &owner, &repo, "HEAD").await
+                },
+            ),
         )
         .route(
             "/:owner/:repo/objects/info/alternates",
-            get(|Path((owner, repo)): Path<(String, String)>, State(AppState { base, .. }): State<AppState>| async move {
-                get_file_text(&base, &owner, &repo, "objects/info/alternates").await
-            }),
+            get(
+                |Path((owner, repo)): Path<(String, String)>,
+                 State(AppState { base, .. }): State<AppState>| async move {
+                    get_file_text(&base, &owner, &repo, "objects/info/alternates").await
+                },
+            ),
         )
         .route(
             "/:owner/:repo/objects/info/http-alternates",
-            get(|Path((owner, repo)): Path<(String, String)>, State(AppState { base, .. }): State<AppState>| async move {
-                get_file_text(&base, &owner, &repo, "objects/info/http-alternates").await
-            }),
+            get(
+                |Path((owner, repo)): Path<(String, String)>,
+                 State(AppState { base, .. }): State<AppState>| async move {
+                    get_file_text(&base, &owner, &repo, "objects/info/http-alternates").await
+                },
+            ),
         )
         .route("/:owner/:repo/objects/info/packs", get(get_info_packs))
         .route(
             "/:owner/:repo/objects/info/:file",
             get(
-                |Path((owner, repo, head, file)): Path<(String, String, String, String)>,State(AppState { base, .. }): State<AppState>| async move {
+                |Path((owner, repo, head, file)): Path<(String, String, String, String)>,
+                 State(AppState { base, .. }): State<AppState>| async move {
                     get_file_text(&base, &owner, &repo, format!("{}/{}", head, file).as_ref()).await
                 },
             ),
         )
         .route("/:owner/:repo/objects/:head/:hash", get(get_loose_object))
-        .route("/:owner/:repo/objects/packs/:file", get(get_pack_or_idx_file))
-
+        .route(
+            "/:owner/:repo/objects/packs/:file",
+            get(get_pack_or_idx_file),
+        )
         // not git server related
         .route_with_tsr("/:owner/:repo", post(create_new_repo).delete(delete_repo))
         .layer(DefaultBodyLimit::disable())
@@ -236,12 +250,10 @@ pub async fn recieve_pack_rpc(
         false => format!("{base}/{owner}/{repo}.git"),
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
+    let container_src = format!("{path}/master");
+    let container_name = repo.trim_end_matches(".git");
 
-    let container_name = "go-example".to_string();
-    let repo_src = "./src/git-repo/go-example".to_string();
-    let container_src = "./src/git-repo/go-example.git/master".to_string();
-
-    if let Err(_e) = git2::Repository::clone(&repo_src, &container_src) {
+    if let Err(_e) = git2::Repository::clone(&path, &container_src) {
         // try to pull
         if let Err(e) = git2::Repository::open(&container_src).and_then(|repo| {
             repo.find_remote("origin")
@@ -251,7 +263,7 @@ pub async fn recieve_pack_rpc(
             println!("error -> {:#?}", e);
             std::fs::remove_dir_all(&container_src).unwrap();
 
-            if let Err(e) = git2::Repository::clone(&repo_src, &container_src) {
+            if let Err(e) = git2::Repository::clone(&path, &container_src) {
                 // if this doesnt work then something is wrong
                 println!("error -> {:#?}", e);
                 return Response::builder()
@@ -262,7 +274,7 @@ pub async fn recieve_pack_rpc(
         };
     };
 
-    if let Err(e) = build_docker(&container_name, &container_src).await {
+    if let Err(e) = build_docker(container_name, &container_src).await {
         println!("error -> {:#?}", e);
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -270,7 +282,7 @@ pub async fn recieve_pack_rpc(
             .unwrap();
     };
 
-    println!("container run on go-example:localhost:3000");
+    println!("container run on go-example:localhost:8080");
 
     res
 }
