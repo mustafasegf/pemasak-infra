@@ -9,7 +9,7 @@ use tower_http::cors::{Any, CorsLayer};
 use std::net::TcpListener;
 
 use crate::configuration::Settings;
-use crate::{git, telemetry};
+use crate::{git, telemetry, auth};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -28,9 +28,11 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .allow_origin(Any);
 
     let git_router = git::router(state.clone(), &config);
+    let auth_router = auth::router(state.clone(), &config);
 
     let app = Router::new()
         .merge(git_router)
+        .merge(auth_router)
         .layer(http_trace)
         .fallback(fallback)
         .with_state(state)
