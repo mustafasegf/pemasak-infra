@@ -9,7 +9,7 @@ use tower_http::cors::{Any, CorsLayer};
 use std::net::TcpListener;
 
 use crate::configuration::Settings;
-use crate::{git, telemetry, auth};
+use crate::{auth, git, telemetry};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -60,7 +60,7 @@ pub async fn fallback(
 ) -> Response<Body> {
     let sub_domain = hostname
         .trim_end_matches(domain.as_str())
-        .trim_end_matches(".");
+        .trim_end_matches('.');
 
     tracing::info!(hostname, sub_domain);
 
@@ -72,8 +72,7 @@ pub async fn fallback(
         Some(route) => {
             let uri = format!("http://{}{}", route, uri);
             *req.uri_mut() = Uri::try_from(uri).unwrap();
-            let res = client.request(req).await.unwrap();
-            res
+            client.request(req).await.unwrap()
         }
         None => {
             tracing::debug!("route not found uri -> {:#?}", uri);

@@ -28,7 +28,6 @@ async fn main() {
         }
     };
 
-
     let state = startup::AppState {
         base: config.git.base.clone(),
         auth: config.application.auth,
@@ -55,11 +54,8 @@ async fn main() {
         }
     };
 
-    match startup::run(listener, state, config).await {
-        Err(err) => {
-            tracing::error!("Failed to start server on address {}: {}", addr_string, err);
-            process::exit(1);
-        }
-        _ => {}
+    if let Err(err) = startup::run(listener, state, config).await {
+        tracing::error!("Failed to start server on address {}: {}", addr_string, err);
+        process::exit(1);
     };
 }
