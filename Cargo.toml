@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
+argon2 = "0.5.2"
 axum = { version = "0.6.20", features = [
   "tracing",
   "json",
@@ -30,9 +31,11 @@ git2 = "0.18.0"
 hyper = { version = "0.14.27", features = ["server", "full"] }
 hyper_cgi = "22.4.15"
 lazy_static = "1.4.0"
+leptos = { version = "0.5.0", features = ["ssr"] }
 nixpacks = "1.16.0"
 password-hash = "0.5.0"
 rand = "0.8.5"
+secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 tokio = { version = "1.32.0", features = ["full"] }
