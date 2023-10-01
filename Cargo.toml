@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 argon2 = "0.5.2"
+async-trait = "0.1.73"
 axum = { version = "0.6.20", features = [
   "tracing",
   "json",
@@ -18,6 +19,8 @@ axum = { version = "0.6.20", features = [
 ] }
 axum-auth = "0.4.0"
 axum-extra = { version = "0.8.0", features = ["typed-routing"] }
+axum_session = "0.6.1"
+axum_session_auth = "0.6.0"
 bollard = "0.15.0"
 byte-unit = "4.0.19"
 bytes = "1.5.0"

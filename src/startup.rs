@@ -28,7 +28,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .allow_origin(Any);
 
     let git_router = git::router(state.clone(), &config);
-    let auth_router = auth::router(state.clone(), &config);
+    let auth_router = auth::router(state.clone(), &config).await;
 
     let app = Router::new()
         .merge(git_router)
