@@ -53,6 +53,7 @@
           packages = with pkgs; [
             bacon
             atlas
+            bunyan-rs
           ];
         };
       }
