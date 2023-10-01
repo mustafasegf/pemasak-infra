@@ -26,7 +26,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         ..Default::default()
     };
     let envs = vec![];
-    create_docker_image(&container_src, envs, &plan_options, &build_options).await?;
+    create_docker_image(container_src, envs, &plan_options, &build_options).await?;
 
     let docker = Docker::connect_with_local_defaults()?;
 
@@ -58,7 +58,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
 
     if !containers.is_empty() {
         docker
-            .stop_container(&container_name, None::<StopContainerOptions>)
+            .stop_container(container_name, None::<StopContainerOptions>)
             .await?;
 
         docker
@@ -133,7 +133,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
     tracing::info!("connect network response-> {:#?}", res);
 
     docker
-        .start_container(&container_name, None::<StartContainerOptions<String>>)
+        .start_container(container_name, None::<StartContainerOptions<String>>)
         .await?;
 
     //inspect network

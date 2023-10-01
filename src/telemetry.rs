@@ -30,6 +30,12 @@ impl LogRecorder {
     }
 }
 
+impl Default for LogRecorder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub enum StdioLock<'a> {
     Stdout(StdoutLock<'a>),
     Stderr(StderrLock<'a>),

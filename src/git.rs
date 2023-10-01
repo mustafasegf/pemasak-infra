@@ -317,13 +317,10 @@ pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes)
         _ => ("".to_string(), "".to_string()),
     };
 
-    let envs = std::env::vars()
-        .into_iter()
-        .chain([env])
-        .collect::<Vec<_>>();
+    let envs = std::env::vars().chain([env]).collect::<Vec<_>>();
 
     let mut cmd = Command::new("git");
-    cmd.args(&[rpc, "--stateless-rpc", path])
+    cmd.args([rpc, "--stateless-rpc", path])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -404,10 +401,7 @@ pub async fn get_info_refs(
         _ => ("".to_string(), "".to_string()),
     };
 
-    let envs = std::env::vars()
-        .into_iter()
-        .chain([env])
-        .collect::<Vec<_>>();
+    let envs = std::env::vars().chain([env]).collect::<Vec<_>>();
 
     let out = match git_command(
         &path,
@@ -449,14 +443,11 @@ pub async fn create_new_repo(
         false => format!("{base}/{repo}.git"),
     };
 
-    match File::open(&path) {
-        Ok(_) => {
-            return Response::builder()
-                .status(StatusCode::CONFLICT)
-                .body(Body::from(json!({"message": "repo exist"}).to_string()))
-                .unwrap()
-        }
-        Err(_) => {}
+    if File::open(&path).is_ok() {
+        return Response::builder()
+            .status(StatusCode::CONFLICT)
+            .body(Body::from(json!({"message": "repo exist"}).to_string()))
+            .unwrap();
     };
 
     match git2::Repository::init_bare(&path) {
@@ -465,14 +456,12 @@ pub async fn create_new_repo(
                 json!({"message": "repo created successfully"}).to_string(),
             ))
             .unwrap(),
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(
-                    json!({"message": format!("failed to init repo: {}", e)}).to_string(),
-                ))
-                .unwrap()
-        }
+        Err(e) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from(
+                json!({"message": format!("failed to init repo: {}", e)}).to_string(),
+            ))
+            .unwrap(),
     }
 }
 
@@ -486,17 +475,13 @@ pub async fn delete_repo(
     };
 
     // check if repo exists
-    match File::open(&path) {
-        Err(_) => {
-            return Response::builder()
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .body(Body::from(
-                    json!({"message": "repo doesn't exist"}).to_string(),
-                ))
-                .unwrap()
-        }
-
-        Ok(_) => {}
+    if File::open(&path).is_err() {
+        return Response::builder()
+            .status(StatusCode::UNPROCESSABLE_ENTITY)
+            .body(Body::from(
+                json!({"message": "repo doesn't exist"}).to_string(),
+            ))
+            .unwrap();
     };
 
     match std::fs::remove_dir_all(&path) {
@@ -505,13 +490,11 @@ pub async fn delete_repo(
                 json!({"message": "repo deleted successfully"}).to_string(),
             ))
             .unwrap(),
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(
-                    json!({"message": format!("failed to delete repo: {}", e)}).to_string(),
-                ))
-                .unwrap()
-        }
+        Err(e) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from(
+                json!({"message": format!("failed to delete repo: {}", e)}).to_string(),
+            ))
+            .unwrap(),
     }
 }
