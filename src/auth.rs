@@ -324,14 +324,15 @@ pub async fn login_user(
         username,
         password,
     }): Form<LoginRequest>,
-) -> Html<String> {
+) -> Response<Body> {
     // get user
     let user = match User::get_from_username(username, &pool).await {
         Some(user) => user,
         None => {
-            return Html(render_to_string(|| { view! {
+            let html = render_to_string(|| { view! {
                 <h1> User does not exist </h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
         }
     };
 
@@ -340,19 +341,25 @@ pub async fn login_user(
     let hash = PasswordHash::new(&user.password).unwrap();
     if let Err(err) = hasher.verify_password(password.expose_secret().as_bytes(), &hash) {
         tracing::error!("Failed to verify password: {}", err);
-        return  Html(leptos::ssr::render_to_string(move || {
+        let html = leptos::ssr::render_to_string(move || {
             view! {
                 <h1> Failed to verify password {err.to_string() } </h1>
             }
-        }).into_owned());
+        }).into_owned();
+        return Response::builder().status(500).body(Body::from(html)).unwrap();
     };
 
     auth.login_user(user.id);
-    let html = leptos::ssr::render_to_string(|| view! { <h1> success login </h1> }).into_owned();
-    Html(html)
+    // TODO: redirect to user dashboard
+    Response::builder().status(StatusCode::FOUND).header("Location", "/user/token").body(Body::empty()).unwrap()
 }
 
-pub async fn login_user_ui() -> Html<String> {
+pub async fn login_user_ui(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+) -> Response<Body> {
+    if auth.current_user.is_some() {
+        return Response::builder().status(StatusCode::FOUND).header("Location", "/user/token").body(Body::empty()).unwrap();
+    }
     let html = leptos::ssr::render_to_string(|| view! {
         <html>
             <head>
@@ -380,7 +387,7 @@ pub async fn login_user_ui() -> Html<String> {
             </body>
         </html>
     }).into_owned();
-    Html(html)
+    Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
 }
 
 
