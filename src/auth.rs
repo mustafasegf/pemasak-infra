@@ -7,7 +7,7 @@ use axum::{
     Form, Router,
 };
 use axum_session::{SessionConfig, SessionLayer, SessionStore};
-use hyper::Body;
+use hyper::{Body, StatusCode};
 use leptos::{*, ssr::render_to_string};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,10 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use rand::{Rng, SeedableRng};
+
+const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const TOKEN_LENGTH: usize = 32;
 
 use axum_session_auth::*;
 use async_trait::async_trait;
@@ -40,6 +44,7 @@ pub async fn router(state: AppState, _config: &Settings) -> Router<AppState, Bod
         .route("/api/user/register", post(register_user_api))
         .route("/user/register", get(register_user_ui).post(register_user))
         .route("/user/login", get(login_user_ui).post(login_user))
+        .route("/user/token", get(list_token_ui).post(create_token))
         .with_state(state)
                 .layer(
             AuthSessionLayer::<User, Uuid, SessionPgPool, PgPool>::new(Some(pool.clone()))
@@ -376,6 +381,138 @@ pub async fn login_user_ui() -> Html<String> {
         </html>
     }).into_owned();
     Html(html)
+}
+
+
+
+#[tracing::instrument(skip(auth, pool))]
+pub async fn create_token(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    State(AppState { pool, .. }): State<AppState>
+) -> Html<String> {
+    let user = match auth.current_user {
+        Some(user) => user,
+        None => {
+            return Html(render_to_string(|| { view! {
+                <h1> User not authenticated </h1>
+            }}).into_owned());
+        }
+    };
+
+    let mut rng = rand::rngs::StdRng::from_entropy();
+    let token = (0..TOKEN_LENGTH).map(|_| {
+        let idx = rng.gen_range(0..CHARSET.len());
+        CHARSET[idx] as char
+    }).collect::<String>();
+
+    if let Err(e) = sqlx::query!(
+        r#"INSERT INTO api_token (id, token, user_id) VALUES ($1, $2, $3)"#,
+        Uuid::from(Ulid::new()),
+        token,
+        &user.id
+    ).execute(&pool).await {
+        tracing::error!("Failed to insert into database: {}", e);
+        return Html(render_to_string(move || { view! {
+            <h1> Failed to insert into database {e.to_string() } </h1>
+        }}).into_owned());
+    };
+
+
+    let tokens = match sqlx::query_as!(
+        Token,
+        r#"SELECT id,token FROM api_token WHERE user_id = $1 AND deleted_at IS NULL"#,
+        user.id
+    ).fetch_all(&pool).await {
+        Ok(tokens) => tokens,
+        Err(err) => {
+            tracing::error!("Failed to query database: {}", err);
+            return Html(render_to_string(move || { view! {
+                <h1> Failed to query database {err.to_string() } </h1>
+            }}).into_owned());
+        }
+    };
+    tracing::info!("tokens: {:?}", tokens);
+
+    let html = render_to_string(move || view! { <Tokens tokens={tokens}/> }).into_owned();
+    Html(html)
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Token {
+    pub id: Uuid,
+    pub token: String,
+}
+
+#[component]
+fn Tokens(tokens: Vec<Token>) -> impl IntoView {
+    let len = tokens.len();
+    match len {
+        0 => vec![view!{ <h3> No tokens </h3> }],
+        _ => {
+            tokens.into_iter().map(|token|{ view!{ 
+                <h3>{token.token.clone()}</h3>
+            }}) .collect::<Vec<_>>()
+        }
+    }
+}
+
+#[tracing::instrument(skip(auth, pool))]
+pub async fn list_token_ui(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    State(AppState { pool, .. }): State<AppState>,
+) -> Response<Body> {
+    let user = match auth.current_user {
+        Some(user) => user,
+        None => {
+            return Response::builder().status(StatusCode::FOUND).header("Location", "/user/login").body(Body::empty()).unwrap();
+        }
+    };
+
+    let tokens = match sqlx::query_as!(
+        Token,
+        r#"SELECT id,token FROM api_token WHERE user_id = $1 AND deleted_at IS NULL"#,
+        user.id
+    ).fetch_all(&pool).await {
+        Ok(tokens) => tokens,
+        Err(err) => {
+            tracing::error!("Failed to query database: {}", err);
+            let html = leptos::ssr::render_to_string(move || {
+                view! {
+                    <h1> Failed to query database {err.to_string() } </h1>
+                }
+            }).into_owned();
+            return Response::builder().status(500).body(Body::from(html)).unwrap();
+        }
+    };
+
+    let html = leptos::ssr::render_to_string(move || view! {
+        <html>
+            <head>
+              <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+            // TODO: change tailwind to use node
+            <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+
+            </head>
+            <body>
+                <h1> List Token </h1>
+                <h1> {format!("login as {}", user.username)} </h1>
+                <div id="tokens">
+                <Tokens tokens={tokens} />
+                // {match len {
+                //     0 => vec![view!{ <h3> No tokens </h3> }],
+                //     _ => {
+                //         tokens.into_iter().map(|token|{ view!{ 
+                //             <h3>{token.token.clone()}</h3>
+                //         }}) .collect::<Vec<_>>()
+                //     }
+                // }}
+                </div>
+                <button class="btn" hx-post="/user/token" hx-target="#tokens">Create Token</button>
+            </body>
+        </html>
+    }).into_owned();
+    Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
 }
 
 #[tracing::instrument(skip(pool, password))]
