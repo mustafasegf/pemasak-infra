@@ -331,10 +331,9 @@ pub async fn recieve_pack_rpc(
         let analysis = repo.merge_analysis(&[&fetch_commit]).unwrap();
 
         if analysis.0.is_fast_forward() {
-            // fast forward
             tracing::info!("fast forward");
             let refname = "refs/heads/master";
-            match repo.find_reference(&refname) {
+            match repo.find_reference(refname) {
                 Ok(mut r) => {
                     fast_forward(&repo, &mut r, &fetch_commit).unwrap();
                 }
@@ -343,13 +342,13 @@ pub async fn recieve_pack_rpc(
                     // commit directly. Usually this is because you are pulling
                     // into an empty repository.
                     repo.reference(
-                        &refname,
+                        refname,
                         fetch_commit.id(),
                         true,
                         &format!("Setting {} to master", fetch_commit.id()),
                     )
                     .unwrap();
-                    repo.set_head(&refname).unwrap();
+                    repo.set_head(refname).unwrap();
                     repo.checkout_head(Some(
                         git2::build::CheckoutBuilder::default()
                             .allow_conflicts(true)
@@ -360,9 +359,11 @@ pub async fn recieve_pack_rpc(
                 }
             };
         } else {
-            // merge
             tracing::info!("merge");
-            repo.merge(&[&fetch_commit], None, None).unwrap();
+            let head_commit = repo
+                .reference_to_annotated_commit(&repo.head().unwrap())
+                .unwrap();
+            normal_merge(&repo, &head_commit, &fetch_commit).unwrap();
         };
 
         if false {
