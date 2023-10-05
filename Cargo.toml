@@ -34,7 +34,7 @@ git2 = "0.18.0"
 hyper = { version = "0.14.27", features = ["server", "full"] }
 hyper_cgi = "22.4.15"
 lazy_static = "1.4.0"
-leptos = { version = "0.5.0", features = ["ssr"] }
+leptos = { version = "0.5.0", features = ["ssr", "experimental-islands"] }
 nixpacks = "1.16.0"
 password-hash = "0.5.0"
 rand = "0.8.5"
