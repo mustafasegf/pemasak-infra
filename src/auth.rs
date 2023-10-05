@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fs::File};
 
 use axum::{
     extract::State,
@@ -21,6 +21,7 @@ use argon2::{
 };
 use rand::{Rng, SeedableRng};
 
+// Base64 url safe
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const TOKEN_LENGTH: usize = 32;
 
@@ -42,9 +43,11 @@ pub async fn router(state: AppState, _config: &Settings) -> Router<AppState, Bod
 
     Router::new()
         .route("/api/user/register", post(register_user_api))
-        .route("/user/register", get(register_user_ui).post(register_user))
-        .route("/user/login", get(login_user_ui).post(login_user))
         .route("/user/token", get(list_token_ui).post(create_token))
+        .route("/register", get(register_user_ui).post(register_user))
+        .route("/login", get(login_user_ui).post(login_user))
+        .route("/logout", get(logout_user).post(logout_user))
+        .route("/new", get(create_repo_ui).post(create_repo))
         .with_state(state)
                 .layer(
             AuthSessionLayer::<User, Uuid, SessionPgPool, PgPool>::new(Some(pool.clone()))
@@ -195,13 +198,14 @@ pub struct UserRequest {
 
 #[tracing::instrument(skip(pool, password))]
 pub async fn register_user(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, .. }): State<AppState>,
     Form(UserRequest {
         username,
         name,
         password,
     }): Form<UserRequest>,
-) -> Html<String> {
+) -> Response<Body> {
     // check if user exists
     match sqlx::query!(
         r#"SELECT username FROM users WHERE username = $1"#,
@@ -213,93 +217,178 @@ pub async fn register_user(
         Err(sqlx::Error::RowNotFound) => {}
         Err(err) => {
             tracing::error!("Failed to query database: {}", err);
-            return Html(render_to_string(move || { view! {
+            let html = render_to_string(move || { view! {
                 <h1> Failed to query database {err.to_string() } </h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
         }
 
         Ok(_) => {
-            return Html(render_to_string(|| { view! {
-                <h1> User already exists </h1>
-            }}).into_owned());
+            let html = render_to_string(|| { view! {
+                <h1> Username already exists </h1>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
         }
     }
 
-    let id = Uuid::from(Ulid::new());
+    let user_id = Uuid::from(Ulid::new());
     let hasher = Argon2::default();
     let salt = SaltString::generate(&mut OsRng);
+
     let password = match hasher.hash_password(password.expose_secret().as_bytes(), &salt) {
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!("Failed to hash password: {}", err);
-            let html = leptos::ssr::render_to_string(move || {
-                view! {
-                    <h1> Failed to hash password {err.to_string() } </h1>
-                }
-            });
-            return Html(html.into_owned());
+            let html = render_to_string(move || { view! {
+                <h1> Failed to hash password {err.to_string() } </h1>
+            }}).into_owned();
+
+            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
         }
     };
 
-    match sqlx::query!(
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!("Failed to begin transaction: {}", err);
+            let html = render_to_string(move || { view! {
+                <h1> Failed to begin transaction {err.to_string() } </h1>
+            }}).into_owned();
+
+            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+        }
+    };
+    
+    if let Err(err) = sqlx::query!(
         r#"INSERT INTO users (id, username, password, name) VALUES ($1, $2, $3, $4)"#,
-        id,
+        user_id,
         username,
         password.to_string(),
         name
     )
-    .execute(&pool)
-    .await
-    {
-        Err(err) => {
-            tracing::error!("Failed to insert into database: {}", err);
-            let html = leptos::ssr::render_to_string(move || {
-                view! {
-                    <h1> Failed to insert into database {err.to_string() } </h1>
-                }
-            });
-            Html(html.into_owned())
+    .execute(&mut *tx)
+    .await {
+        tracing::error!("Failed to insert into database: {}", err);
+        let errs = match tx.rollback().await {
+            Ok(_) => vec![err],
+            Err(e) => {
+                    tracing::error!("Failed to rollback transaction: {}", e);
+                    // TODO: check back if we need this
+                    vec![err, e]
+                },
+        };
+        let html = render_to_string(move || { view! {
+            <h1> Failed to insert into database { 
+                   errs.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
+                 }
+            </h1>
+        }}).into_owned();
+        
+        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+    };
+
+    let owner_id = Uuid::from(Ulid::new());
+
+    if let Err(err) =  sqlx::query!(
+        r#"INSERT INTO owners (id, name) VALUES ($1, $2)"#,
+        owner_id,
+        name
+    )
+    .execute(&mut *tx)
+    .await {
+        tracing::error!("Failed to insert into database: {}", err);
+        let errs = match tx.rollback().await {
+            Ok(_) => vec![err],
+            Err(e) => {
+                    tracing::error!("Failed to rollback transaction: {}", e);
+                    // TODO: check back if we need this
+                    vec![err, e]
+                },
+        };
+        let html = render_to_string(move || { view! {
+            <h1> Failed to insert into database { 
+                   errs.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
+                 }
+            </h1>
+        }}).into_owned();
+        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+    };
+
+    if let Err(err) = sqlx::query!(
+            r#"INSERT INTO users_owners (user_id, owner_id) VALUES ($1, $2)"#,
+            user_id,
+            owner_id,
+        )
+        .execute(&mut *tx)
+        .await {
+        tracing::error!("Failed to insert into database: {}", err);
+        let errs = match tx.rollback().await {
+            Ok(_) => vec![err],
+            Err(e) => {
+                    tracing::error!("Failed to rollback transaction: {}", e);
+                    // TODO: check back if we need this
+                    vec![err, e]
+                },
+        };
+        let html = render_to_string(move || { view! {
+            <h1> Failed to insert into database { 
+                   errs.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
+                 }
+            </h1>
+        }}).into_owned();
+
+        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+    }
+    
+    match tx.commit().await {
+        Err(err) =>{
+            tracing::error!("Failed to commit transaction: {}", err);
+            let html = render_to_string(move || { view! {
+                <h1> Failed to commit transaction {err.to_string() } </h1>
+            }}).into_owned();
+            Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
         }
         Ok(_) => {
-            let html = leptos::ssr::render_to_string(|| {
-                view! {
-                    <h1> User created </h1>
-                }
-            });
-            Html(html.into_owned())
+            auth.login_user(user_id);
+            let html = render_to_string(|| { view! {
+                <h1> User created </h1>
+            }}).into_owned();
+            Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").header("HX-Location", "/new").body(Body::from(html)).unwrap()
         }
     }
+
 }
 
 #[tracing::instrument]
 pub async fn register_user_ui() -> Html<String> {
-    let html = leptos::ssr::render_to_string(|| {
+    let html = render_to_string(|| {
         view! {
-            <html>
+            <html data-theme="night">
                 <head>
-                  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
-                // TODO: change tailwind to use node
-                <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
-
+                    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+                    // TODO: change tailwind to use node
+                    <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
+                    <script src="https://cdn.tailwindcss.com"></script>
                 </head>
                 <body>
-                    <h1> Register </h1>
-                    <form 
-                      hx-post="/user/register" 
-                      hx-trigger="submit"
-                      hx-target="#result"
-                      class="card-body"
-                    >
-                        <label for="username">Username</label>
-                        <input type="text" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
-                        <label for="name">Name</label>
-                        <input type="text" name="name" id="name" required class="input input-bordered w-full max-w-xs" />
-                        <label for="password">Password</label>
-                        <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
-                        <button type="submit" class="btn">Register</button>
-                    </form>
-                    <div id="result"></div>
+                    <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
+                        <form 
+                          hx-post="/register" 
+                          hx-trigger="submit"
+                          hx-target="#result"
+                          class="flex flex-col mb-4 gap-1"
+                        >
+                            <h1 class="text-2xl font-bold"> Register </h1>
+                            <label for="username">Username</label>
+                            <input type="text" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+                            <label for="name">Name</label>
+                            <input type="text" name="name" id="name" required class="input input-bordered w-full max-w-xs" />
+                            <label for="password">Password</label>
+                            <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
+                            <button class="mt-4 btn btn-primary w-full max-w-xs">Register</button>
+                        </form>
+                        <div id="result"></div>
+                    </div>
                 </body>
             </html>
         }
@@ -309,6 +398,13 @@ pub async fn register_user_ui() -> Html<String> {
     Html(html)
 }
 
+#[tracing::instrument(skip(auth))]
+pub async fn logout_user(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+) -> Response<Body> {
+    auth.logout_user();
+    Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap()
+}
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -341,7 +437,7 @@ pub async fn login_user(
     let hash = PasswordHash::new(&user.password).unwrap();
     if let Err(err) = hasher.verify_password(password.expose_secret().as_bytes(), &hash) {
         tracing::error!("Failed to verify password: {}", err);
-        let html = leptos::ssr::render_to_string(move || {
+        let html = render_to_string(move || {
             view! {
                 <h1> Failed to verify password {err.to_string() } </h1>
             }
@@ -351,7 +447,7 @@ pub async fn login_user(
 
     auth.login_user(user.id);
     // TODO: redirect to user dashboard
-    Response::builder().status(StatusCode::FOUND).header("Location", "/user/token").body(Body::empty()).unwrap()
+    Response::builder().status(StatusCode::FOUND).header("HX-Location", "/new").body(Body::empty()).unwrap()
 }
 
 pub async fn login_user_ui(
@@ -360,8 +456,8 @@ pub async fn login_user_ui(
     if auth.current_user.is_some() {
         return Response::builder().status(StatusCode::FOUND).header("Location", "/user/token").body(Body::empty()).unwrap();
     }
-    let html = leptos::ssr::render_to_string(|| view! {
-        <html>
+    let html = render_to_string(|| view! {
+        <html data-theme="night">
             <head>
               <script src="https://unpkg.com/htmx.org@1.9.6"></script>
             // TODO: change tailwind to use node
@@ -370,20 +466,20 @@ pub async fn login_user_ui(
 
             </head>
             <body>
-                <h1> Login </h1>
-                <form 
-                  hx-post="/user/login" 
-                  hx-trigger="submit"
-                  hx-target="#result"
-                  class="card-body"
-                >
-                    <label for="username">Username</label>
-                    <input type="text" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
-                    <label for="password">Password</label>
-                    <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
-                    <button type="submit" class="btn">Register</button>
-                </form>
-                <div id="result"></div>
+                <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
+                    <form 
+                      hx-post="/login" 
+                      hx-trigger="submit"
+                      class="flex flex-col mb-4 gap-1"
+                    >
+                        <h1 class="text-2xl font-bold"> Login </h1>
+                        <label for="username">Username</label>
+                        <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+                        <label for="password">Password</label>
+                        <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
+                        <button class="mt-4 btn btn-primary w-full max-w-xs">Login</button>
+                    </form>
+                </div>
             </body>
         </html>
     }).into_owned();
@@ -412,10 +508,23 @@ pub async fn create_token(
         CHARSET[idx] as char
     }).collect::<String>();
 
+    let salt = SaltString::generate(&mut OsRng);
+    let hasher = Argon2::default();
+    let hash = match hasher.hash_password(token.as_bytes(), &salt) {
+        Ok(hash) => hash,
+        Err(err) => {
+            tracing::error!("Failed to hash token: {}", err);
+            return Html(render_to_string(move || { view! {
+                <h1> Failed to generate token {err.to_string() } </h1>
+            }}).into_owned());
+        }
+    };
+
+
     if let Err(e) = sqlx::query!(
         r#"INSERT INTO api_token (id, token, user_id) VALUES ($1, $2, $3)"#,
         Uuid::from(Ulid::new()),
-        token,
+        hash.to_string(),
         &user.id
     ).execute(&pool).await {
         tracing::error!("Failed to insert into database: {}", e);
@@ -427,7 +536,7 @@ pub async fn create_token(
 
     let tokens = match sqlx::query_as!(
         Token,
-        r#"SELECT id,token FROM api_token WHERE user_id = $1 AND deleted_at IS NULL"#,
+        r#"SELECT id,name FROM api_token WHERE user_id = $1 AND deleted_at IS NULL"#,
         user.id
     ).fetch_all(&pool).await {
         Ok(tokens) => tokens,
@@ -438,7 +547,6 @@ pub async fn create_token(
             }}).into_owned());
         }
     };
-    tracing::info!("tokens: {:?}", tokens);
 
     let html = render_to_string(move || view! { <Tokens tokens={tokens}/> }).into_owned();
     Html(html)
@@ -447,7 +555,7 @@ pub async fn create_token(
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Token {
     pub id: Uuid,
-    pub token: String,
+    pub name: String,
 }
 
 #[component]
@@ -457,8 +565,8 @@ fn Tokens(tokens: Vec<Token>) -> impl IntoView {
         0 => vec![view!{ <h3> No tokens </h3> }],
         _ => {
             tokens.into_iter().map(|token|{ view!{ 
-                <h3>{token.token.clone()}</h3>
-            }}) .collect::<Vec<_>>()
+                <h3>{token.name.clone()}</h3>
+            }}).collect::<Vec<_>>()
         }
     }
 }
@@ -471,19 +579,22 @@ pub async fn list_token_ui(
     let user = match auth.current_user {
         Some(user) => user,
         None => {
-            return Response::builder().status(StatusCode::FOUND).header("Location", "/user/login").body(Body::empty()).unwrap();
+            return Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap();
         }
     };
 
     let tokens = match sqlx::query_as!(
         Token,
-        r#"SELECT id,token FROM api_token WHERE user_id = $1 AND deleted_at IS NULL"#,
+        r#"SELECT id, name 
+           FROM api_token
+           WHERE user_id = $1 
+           AND deleted_at IS NULL"#,
         user.id
     ).fetch_all(&pool).await {
         Ok(tokens) => tokens,
         Err(err) => {
             tracing::error!("Failed to query database: {}", err);
-            let html = leptos::ssr::render_to_string(move || {
+            let html = render_to_string(move || {
                 view! {
                     <h1> Failed to query database {err.to_string() } </h1>
                 }
@@ -492,8 +603,8 @@ pub async fn list_token_ui(
         }
     };
 
-    let html = leptos::ssr::render_to_string(move || view! {
-        <html>
+    let html = render_to_string(move || view! {
+        <html data-theme="night">
             <head>
               <script src="https://unpkg.com/htmx.org@1.9.6"></script>
             // TODO: change tailwind to use node
@@ -506,16 +617,175 @@ pub async fn list_token_ui(
                 <h1> {format!("login as {}", user.username)} </h1>
                 <div id="tokens">
                 <Tokens tokens={tokens} />
-                // {match len {
-                //     0 => vec![view!{ <h3> No tokens </h3> }],
-                //     _ => {
-                //         tokens.into_iter().map(|token|{ view!{ 
-                //             <h3>{token.token.clone()}</h3>
-                //         }}) .collect::<Vec<_>>()
-                //     }
-                // }}
                 </div>
-                <button class="btn" hx-post="/user/token" hx-target="#tokens">Create Token</button>
+                <button class="btn w-full max-w-xs" hx-post="/user/token" hx-target="#tokens">Create Token</button>
+            </body>
+        </html>
+    }).into_owned();
+    Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
+}
+
+
+// TODO: we need to finalize the working between repo and project
+#[derive(Deserialize)]
+pub struct RepoRequest {
+    pub owner: String,
+    pub project: String,
+}
+
+#[tracing::instrument(skip(auth, base))]
+pub async fn create_repo(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    State(AppState { base, domain, .. }): State<AppState>,
+    Form(RepoRequest {
+        owner,
+        project,
+    }): Form<RepoRequest>,
+) -> Html<String> {
+     if auth.current_user.is_none() {
+        return Html(render_to_string(|| { view! {
+            <h1> User not authenticated </h1>
+        }}).into_owned());
+    };
+
+    let path = match project.ends_with(".git") {
+        true => format!("{base}/{owner}/{project}"),
+        false => format!("{base}/{owner}/{project}.git"),
+    };
+
+
+    if File::open(&path).is_ok() {
+        return Html(render_to_string(|| { view! {
+            <h1> project name already taken </h1>
+        }}).into_owned());
+    };
+
+
+    match git2::Repository::init_bare(path) {
+        Err(err) => {
+            tracing::error!("Failed to create repo: {}", err);
+            Html(render_to_string(move || { view! {
+                <h1> Failed to query database {err.to_string() } </h1>
+            }}).into_owned())
+        },
+        Ok(_) => 
+            Html(render_to_string(move || { view! {
+                <h1> Project created successfully  </h1>
+                <div class="p-4 bg-gray-800">
+                    <pre><code id="code"> 
+                        git remote add origin {format!(" http://{domain}/{owner}/{project}")} <br/>
+                        {"git push -u origin master"}
+                    </code></pre>
+                </div>
+                <button
+                class="btn btn-outline btn-secondary mt-4"
+                onclick="
+                    let lb = '\\n'
+                    if(navigator.userAgent.indexOf('Windows') != -1) {{
+                      lb = '\\r\\n'
+                    }}
+
+                    let text = document.getElementById('code').getInnerHTML().replaceAll('<br>', lb)
+                    console.log(text)
+                    if ('clipboard' in window.navigator) {{
+                        navigator.clipboard.writeText(text)
+                    }}"
+                > Copy to clipboard </button>
+            }}).into_owned()),
+    }
+}
+
+#[derive(sqlx::Type, Eq, PartialEq, Deserialize, Serialize, Debug)]
+pub struct Owner {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[derive(Eq, PartialEq, Deserialize, Serialize, Debug)]
+pub struct UserOwner {
+    pub id: Uuid,
+    pub name: String,
+    pub owners: Vec<Owner>,
+}
+
+#[tracing::instrument(skip(auth, pool))]
+pub async fn create_repo_ui(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    State(AppState { pool, .. }): State<AppState>,
+) -> Response<Body> {
+    // TODO: move this logic to middleware
+    let user = match auth.current_user {
+        Some(user) => user,
+        None => {
+            return Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap();
+        }
+    };
+
+    let user_owners: UserOwner = match sqlx::query_as!(
+        UserOwner,
+        r#"SELECT 
+            u.id, 
+            u.name, 
+            COALESCE(NULLIF(ARRAY_AGG((o.id, o.name)), '{NULL}'), '{}') AS "owners!: Vec<Owner>" 
+          FROM users u, owners o
+          WHERE o.deleted_at is NULL
+            AND u.id = $1
+          GROUP BY u.id"#,
+        user.id
+    ).fetch_one(&pool).await {
+        Ok(data) => data,
+        Err(err) => {
+            tracing::error!("Failed to query database: {}", err);
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to query database {err.to_string() } </h1>
+                }
+            }).into_owned();
+            return Response::builder().status(500).body(Body::from(html)).unwrap();
+        }
+    };
+
+    let html = render_to_string(move || view! {
+        <html data-theme="night">
+            <head>
+              <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+                // TODO: change tailwind to use node
+                <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
+                <script src="https://cdn.tailwindcss.com"></script>
+                <script src="https://unpkg.com/hyperscript.org@0.9.11"></script>
+            </head>
+            <body>
+                <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
+                    <form 
+                      hx-post="/new" 
+                      hx-trigger="submit"
+                      hx-target="#result"
+                      class="flex flex-col mb-4 gap-2"
+                    >
+                        <h1 class="text-2xl font-bold"> Create Project </h1>
+                        <h3 class="text-lg"> {format!("login as {}", user.username)} </h3>
+                        <div class="flex flex-row gap-2">
+                            <div class="form-control">
+                              <label class="label">
+                                <span class="label-text">Owner</span>
+                              </label>
+                                <select name="owner" class="select select-bordered w-full max-w-xs">
+                                    {user_owners.owners.into_iter().map(|owner|{ view!{ 
+                                        <option>{owner.name}</option>
+                                    }}).collect::<Vec<_>>()}
+                                </select>
+                            </div>
+                            <div class="form-control">
+                              <label class="label">
+                                <span class="label-text">Project</span>
+                              </label>
+                                <input type="text" name="project" required class="input input-bordered w-full max-w-xs"/>
+                            </div>
+                        </div>
+                        <button class="mt-4 btn btn-primary w-full max-w-xs">Create Project</button>
+                    </form>
+                    <div id="result"></div>
+                </div>
             </body>
         </html>
     }).into_owned();
