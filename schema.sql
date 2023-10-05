@@ -35,6 +35,7 @@ CREATE TABLE sessions (
   session TEXT NOT NULL
 );
 
+-- TODO: make a way to owners must have atleast one user
 CREATE TABLE owners (
   id          UUID          NOT NULL,
   name        TEXT          NOT NULL,
