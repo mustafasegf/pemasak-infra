@@ -189,6 +189,37 @@ impl SqlUser {
     }
 }
 
+// TODO: move this out of auth
+#[component]
+fn base(children: Children) -> impl IntoView{
+    view!{
+        <html data-theme="night">
+            <head>
+                <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+                // TODO: change tailwind to use node
+                <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
+                <script src="https://cdn.tailwindcss.com"></script>
+            </head>
+            <body>
+                // need this in body so body exist
+                <script> {"
+                    document.body.addEventListener('htmx:beforeSwap', function(evt) {{
+                      let status = evt.detail.xhr.status;
+                      if (status === 500 || status === 422 || status === 400) {{
+                        evt.detail.shouldSwap = true;
+                        evt.detail.isError = false;
+                      }}
+                    }});
+                "}</script>
+                //TODO: maybe make this optional
+                <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
+                    {children()}
+                </div>
+            </body>
+        </html>
+    }
+}
+
 #[derive(Deserialize)]
 pub struct UserRequest {
     pub username: String,
@@ -196,7 +227,7 @@ pub struct UserRequest {
     pub password: Secret<String>,
 }
 
-#[tracing::instrument(skip(pool, password))]
+#[tracing::instrument(skip(auth, pool, password))]
 pub async fn register_user(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, .. }): State<AppState>,
@@ -206,9 +237,43 @@ pub async fn register_user(
         password,
     }): Form<UserRequest>,
 ) -> Response<Body> {
+    // validate username
+    // TODO: maybe use rust validator crate
+    if username.contains(char::is_whitespace) {
+        let html = render_to_string(move || { view! {
+            <h1> Username cannot contain whitespace </h1>
+        }}).into_owned();
+        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+    }
+
     // check if user exists
     match sqlx::query!(
         r#"SELECT username FROM users WHERE username = $1"#,
+        username
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Err(sqlx::Error::RowNotFound) => {}
+        Err(err) => {
+            tracing::error!("Failed to query database: {}", err);
+            let html = render_to_string(move || { view! {
+                <h1> Failed to query database {err.to_string() } </h1>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+        }
+
+        Ok(_) => {
+            let html = render_to_string(|| { view! {
+                <h1> Username already exists </h1>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+        }
+    }
+
+    // check if owner exists
+    match sqlx::query!(
+        r#"SELECT name FROM owners WHERE name = $1"#,
         username
     )
     .fetch_one(&pool)
@@ -292,7 +357,7 @@ pub async fn register_user(
     if let Err(err) =  sqlx::query!(
         r#"INSERT INTO owners (id, name) VALUES ($1, $2)"#,
         owner_id,
-        name
+        username
     )
     .execute(&mut *tx)
     .await {
@@ -363,34 +428,24 @@ pub async fn register_user(
 pub async fn register_user_ui() -> Html<String> {
     let html = render_to_string(|| {
         view! {
-            <html data-theme="night">
-                <head>
-                    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
-                    // TODO: change tailwind to use node
-                    <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
-                    <script src="https://cdn.tailwindcss.com"></script>
-                </head>
-                <body>
-                    <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
-                        <form 
-                          hx-post="/register" 
-                          hx-trigger="submit"
-                          hx-target="#result"
-                          class="flex flex-col mb-4 gap-1"
-                        >
-                            <h1 class="text-2xl font-bold"> Register </h1>
-                            <label for="username">Username</label>
-                            <input type="text" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
-                            <label for="name">Name</label>
-                            <input type="text" name="name" id="name" required class="input input-bordered w-full max-w-xs" />
-                            <label for="password">Password</label>
-                            <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
-                            <button class="mt-4 btn btn-primary w-full max-w-xs">Register</button>
-                        </form>
-                        <div id="result"></div>
-                    </div>
-                </body>
-            </html>
+            <Base>
+                <form 
+                  hx-post="/register" 
+                  hx-trigger="submit"
+                  hx-target="#result"
+                  class="flex flex-col mb-4 gap-1"
+                >
+                    <h1 class="text-2xl font-bold"> Register </h1>
+                    <label for="username">Username</label>
+                    <input type="text" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+                    <label for="name">Name</label>
+                    <input type="text" name="name" id="name" required class="input input-bordered w-full max-w-xs" />
+                    <label for="password">Password</label>
+                    <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
+                    <button class="mt-4 btn btn-primary w-full max-w-xs">Register</button>
+                </form>
+                <div id="result"></div>
+            </Base>
         }
     })
     .into_owned();
@@ -450,6 +505,7 @@ pub async fn login_user(
     Response::builder().status(StatusCode::FOUND).header("HX-Location", "/new").body(Body::empty()).unwrap()
 }
 
+#[tracing::instrument(skip(auth))]
 pub async fn login_user_ui(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
 ) -> Response<Body> {
@@ -633,7 +689,7 @@ pub struct RepoRequest {
     pub project: String,
 }
 
-#[tracing::instrument(skip(auth, base))]
+#[tracing::instrument(skip(auth, base, domain))]
 pub async fn create_repo(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { base, domain, .. }): State<AppState>,
@@ -647,6 +703,13 @@ pub async fn create_repo(
             <h1> User not authenticated </h1>
         }}).into_owned());
     };
+
+    // validate project name
+    if project.contains(char::is_whitespace) {
+        return Html(render_to_string(|| { view! {
+            <h1> Project name cannot contain whitespace </h1>
+        }}).into_owned());
+    }
 
     let path = match project.ends_with(".git") {
         true => format!("{base}/{owner}/{project}"),
@@ -705,6 +768,7 @@ pub struct Owner {
 pub struct UserOwner {
     pub id: Uuid,
     pub name: String,
+    pub username: String,
     pub owners: Vec<Owner>,
 }
 
@@ -726,6 +790,7 @@ pub async fn create_repo_ui(
         r#"SELECT 
             u.id, 
             u.name, 
+            u.username,
             COALESCE(NULLIF(ARRAY_AGG((o.id, o.name)), '{NULL}'), '{}') AS "owners!: Vec<Owner>" 
           FROM users u, owners o
           WHERE o.deleted_at is NULL
