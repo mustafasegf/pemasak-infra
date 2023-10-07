@@ -513,31 +513,20 @@ pub async fn login_user_ui(
         return Response::builder().status(StatusCode::FOUND).header("Location", "/user/token").body(Body::empty()).unwrap();
     }
     let html = render_to_string(|| view! {
-        <html data-theme="night">
-            <head>
-              <script src="https://unpkg.com/htmx.org@1.9.6"></script>
-            // TODO: change tailwind to use node
-            <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
-<script src="https://cdn.tailwindcss.com"></script>
-
-            </head>
-            <body>
-                <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
-                    <form 
-                      hx-post="/login" 
-                      hx-trigger="submit"
-                      class="flex flex-col mb-4 gap-1"
-                    >
-                        <h1 class="text-2xl font-bold"> Login </h1>
-                        <label for="username">Username</label>
-                        <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
-                        <label for="password">Password</label>
-                        <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
-                        <button class="mt-4 btn btn-primary w-full max-w-xs">Login</button>
-                    </form>
-                </div>
-            </body>
-        </html>
+        <Base>
+            <form 
+              hx-post="/login" 
+              hx-trigger="submit"
+              class="flex flex-col mb-4 gap-1"
+            >
+                <h1 class="text-2xl font-bold"> Login </h1>
+                <label for="username">Username</label>
+                <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+                <label for="password">Password</label>
+                <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
+                <button class="mt-4 btn btn-primary w-full max-w-xs">Login</button>
+            </form>
+        </Base>
     }).into_owned();
     Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
 }
@@ -762,48 +751,37 @@ pub async fn create_repo_ui(
     };
 
     let html = render_to_string(move || view! {
-        <html data-theme="night">
-            <head>
-              <script src="https://unpkg.com/htmx.org@1.9.6"></script>
-                // TODO: change tailwind to use node
-                <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
-                <script src="https://cdn.tailwindcss.com"></script>
-                <script src="https://unpkg.com/hyperscript.org@0.9.11"></script>
-            </head>
-            <body>
-                <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
-                    <form 
-                      hx-post="/new" 
-                      hx-trigger="submit"
-                      hx-target="#result"
-                      class="flex flex-col mb-4 gap-2"
-                    >
-                        <h1 class="text-2xl font-bold"> Create Project </h1>
-                        <h3 class="text-lg"> {format!("login as {}", user.username)} </h3>
-                        <div class="flex flex-row gap-2">
-                            <div class="form-control">
-                              <label class="label">
-                                <span class="label-text">Owner</span>
-                              </label>
-                                <select name="owner" class="select select-bordered w-full max-w-xs">
-                                    {user_owners.owners.into_iter().map(|owner|{ view!{ 
-                                        <option>{owner.name}</option>
-                                    }}).collect::<Vec<_>>()}
-                                </select>
-                            </div>
-                            <div class="form-control">
-                              <label class="label">
-                                <span class="label-text">Project</span>
-                              </label>
-                                <input type="text" name="project" required class="input input-bordered w-full max-w-xs"/>
-                            </div>
-                        </div>
-                        <button class="mt-4 btn btn-primary w-full max-w-xs">Create Project</button>
-                    </form>
-                    <div id="result"></div>
+        <Base>
+            <form 
+              hx-post="/new" 
+              hx-trigger="submit"
+              hx-target="#result"
+              class="flex flex-col mb-4 gap-2"
+            >
+                <h1 class="text-2xl font-bold"> Create Project </h1>
+                <h3 class="text-lg"> {format!("login as {}", user.username)} </h3>
+                <div class="flex flex-row gap-2">
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text">Owner</span>
+                      </label>
+                        <select name="owner" class="select select-bordered w-full max-w-xs">
+                            {user_owners.owners.into_iter().map(|owner|{ view!{ 
+                                <option>{owner.name}</option>
+                            }}).collect::<Vec<_>>()}
+                        </select>
+                    </div>
+                    <div class="form-control">
+                      <label class="label">
+                        <span class="label-text">Project</span>
+                      </label>
+                        <input type="text" name="project" required class="input input-bordered w-full max-w-xs"/>
+                    </div>
                 </div>
-            </body>
-        </html>
+                <button class="mt-4 btn btn-primary w-full max-w-xs">Create Project</button>
+            </form>
+            <div id="result"></div>
+        </Base>
     }).into_owned();
     Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
 }
@@ -817,7 +795,6 @@ pub async fn register_user_api(
         password,
     }): Form<UserRequest>,
 ) -> Response<Body> {
-    // check if user exists
 
     // TODO: return appropriate body
     match sqlx::query!(
