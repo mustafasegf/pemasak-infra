@@ -43,7 +43,7 @@ pub async fn router(state: AppState, _config: &Settings) -> Router<AppState, Bod
 
     Router::new()
         .route("/api/user/register", post(register_user_api))
-        .route("/user/token", get(list_token_ui).post(create_token))
+        .route("/user/token", post(create_token))
         .route("/register", get(register_user_ui).post(register_user))
         .route("/login", get(login_user_ui).post(login_user))
         .route("/logout", get(logout_user).post(logout_user))
@@ -273,7 +273,7 @@ pub async fn register_user(
 
     // check if owner exists
     match sqlx::query!(
-        r#"SELECT name FROM owners WHERE name = $1"#,
+        r#"SELECT name FROM project_owners WHERE name = $1"#,
         username
     )
     .fetch_one(&pool)
@@ -355,7 +355,7 @@ pub async fn register_user(
     let owner_id = Uuid::from(Ulid::new());
 
     if let Err(err) =  sqlx::query!(
-        r#"INSERT INTO owners (id, name) VALUES ($1, $2)"#,
+        r#"INSERT INTO project_owners (id, name) VALUES ($1, $2)"#,
         owner_id,
         username
     )
@@ -544,19 +544,53 @@ pub async fn login_user_ui(
 
 
 
+#[derive(Deserialize)]
+pub struct TokenRequest {
+    pub project_id: String,
+}
+
 #[tracing::instrument(skip(auth, pool))]
 pub async fn create_token(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
-    State(AppState { pool, .. }): State<AppState>
+    State(AppState { pool, .. }): State<AppState>,
+    Form(TokenRequest { project_id }): Form<TokenRequest>,
 ) -> Html<String> {
-    let user = match auth.current_user {
-        Some(user) => user,
-        None => {
-            return Html(render_to_string(|| { view! {
-                <h1> User not authenticated </h1>
+    if auth.current_user.is_none() {
+        return Html(render_to_string(|| { view! {
+            <h1> User not authenticated </h1>
+        }}).into_owned());
+    };
+
+    // check if project id valid UUID
+    let project_id = match Uuid::parse_str(&project_id) {
+        Ok(id) => id,
+        Err(err) => {
+            tracing::error!("Failed to parse project id: {}", err);
+            return Html(render_to_string(move || { view! {
+                <h1> Failed to parse project id {err.to_string() } </h1>
             }}).into_owned());
         }
     };
+
+    // check if project exists
+    match sqlx::query!(
+        r#"SELECT id FROM projects WHERE id = $1 AND deleted_at IS NULL"#,
+        project_id
+    ).fetch_one(&pool).await {
+        Ok(_) => {},
+        Err(sqlx::Error::RowNotFound) => {
+            return Html(render_to_string(move || { view! {
+                <h1> Project does not exist </h1>
+            }}).into_owned());
+        },
+        Err(err) => {
+            tracing::error!("Failed to query database: {}", err);
+            return Html(render_to_string(move || { view! {
+                <h1> Failed to query database {err.to_string() } </h1>
+            }}).into_owned());
+
+        }
+    }
 
     let mut rng = rand::rngs::StdRng::from_entropy();
     let token = (0..TOKEN_LENGTH).map(|_| {
@@ -576,12 +610,11 @@ pub async fn create_token(
         }
     };
 
-
     if let Err(e) = sqlx::query!(
-        r#"INSERT INTO api_token (id, token, user_id) VALUES ($1, $2, $3)"#,
+        r#"INSERT INTO api_token (id, project_id, token) VALUES ($1, $2, $3)"#,
         Uuid::from(Ulid::new()),
+        project_id,
         hash.to_string(),
-        &user.id
     ).execute(&pool).await {
         tracing::error!("Failed to insert into database: {}", e);
         return Html(render_to_string(move || { view! {
@@ -589,22 +622,7 @@ pub async fn create_token(
         }}).into_owned());
     };
 
-
-    let tokens = match sqlx::query_as!(
-        Token,
-        r#"SELECT id,name FROM api_token WHERE user_id = $1 AND deleted_at IS NULL"#,
-        user.id
-    ).fetch_all(&pool).await {
-        Ok(tokens) => tokens,
-        Err(err) => {
-            tracing::error!("Failed to query database: {}", err);
-            return Html(render_to_string(move || { view! {
-                <h1> Failed to query database {err.to_string() } </h1>
-            }}).into_owned());
-        }
-    };
-
-    let html = render_to_string(move || view! { <Tokens tokens={tokens}/> }).into_owned();
+    let html = render_to_string(move || view! { <p>{token}</p> }).into_owned();
     Html(html)
 }
 
@@ -612,73 +630,6 @@ pub async fn create_token(
 pub struct Token {
     pub id: Uuid,
     pub name: String,
-}
-
-#[component]
-fn Tokens(tokens: Vec<Token>) -> impl IntoView {
-    let len = tokens.len();
-    match len {
-        0 => vec![view!{ <h3> No tokens </h3> }],
-        _ => {
-            tokens.into_iter().map(|token|{ view!{ 
-                <h3>{token.name.clone()}</h3>
-            }}).collect::<Vec<_>>()
-        }
-    }
-}
-
-#[tracing::instrument(skip(auth, pool))]
-pub async fn list_token_ui(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
-    State(AppState { pool, .. }): State<AppState>,
-) -> Response<Body> {
-    let user = match auth.current_user {
-        Some(user) => user,
-        None => {
-            return Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap();
-        }
-    };
-
-    let tokens = match sqlx::query_as!(
-        Token,
-        r#"SELECT id, name 
-           FROM api_token
-           WHERE user_id = $1 
-           AND deleted_at IS NULL"#,
-        user.id
-    ).fetch_all(&pool).await {
-        Ok(tokens) => tokens,
-        Err(err) => {
-            tracing::error!("Failed to query database: {}", err);
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to query database {err.to_string() } </h1>
-                }
-            }).into_owned();
-            return Response::builder().status(500).body(Body::from(html)).unwrap();
-        }
-    };
-
-    let html = render_to_string(move || view! {
-        <html data-theme="night">
-            <head>
-              <script src="https://unpkg.com/htmx.org@1.9.6"></script>
-            // TODO: change tailwind to use node
-            <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
-<script src="https://cdn.tailwindcss.com"></script>
-
-            </head>
-            <body>
-                <h1> List Token </h1>
-                <h1> {format!("login as {}", user.username)} </h1>
-                <div id="tokens">
-                <Tokens tokens={tokens} />
-                </div>
-                <button class="btn w-full max-w-xs" hx-post="/user/token" hx-target="#tokens">Create Token</button>
-            </body>
-        </html>
-    }).into_owned();
-    Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
 }
 
 
@@ -792,7 +743,7 @@ pub async fn create_repo_ui(
             u.name, 
             u.username,
             COALESCE(NULLIF(ARRAY_AGG((o.id, o.name)), '{NULL}'), '{}') AS "owners!: Vec<Owner>" 
-          FROM users u, owners o
+          FROM users u, project_owners o
           WHERE o.deleted_at is NULL
             AND u.id = $1
           GROUP BY u.id"#,

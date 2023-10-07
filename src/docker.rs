@@ -235,12 +235,12 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
 
     let ip = &network_inspect
         .containers
-        .unwrap()
+        .unwrap_or_default()
         .get(&res.id)
         .unwrap()
         .ipv4_address
         .clone()
-        .unwrap();
+        .unwrap_or_default();
 
     tracing::info!(ip);
     Ok(())
