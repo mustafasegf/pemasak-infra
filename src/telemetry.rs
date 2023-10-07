@@ -1,4 +1,4 @@
-use std::io::{self, Stderr, StderrLock, Stdout, StdoutLock};
+use std::io::{self, Empty, Stderr, StderrLock, Stdout, StdoutLock};
 
 use tracing::{Level, Metadata};
 
@@ -19,6 +19,7 @@ use tracing_bunyan_formatter::BunyanFormattingLayer;
 pub struct LogRecorder {
     stdout: Stdout,
     stderr: Stderr,
+    empty: Empty,
 }
 
 impl LogRecorder {
@@ -26,6 +27,7 @@ impl LogRecorder {
         Self {
             stdout: io::stdout(),
             stderr: io::stderr(),
+            empty: io::empty(),
         }
     }
 }
@@ -39,6 +41,7 @@ impl Default for LogRecorder {
 pub enum StdioLock<'a> {
     Stdout(StdoutLock<'a>),
     Stderr(StderrLock<'a>),
+    Empty(Empty),
 }
 
 impl<'a> io::Write for StdioLock<'a> {
@@ -46,6 +49,7 @@ impl<'a> io::Write for StdioLock<'a> {
         match self {
             StdioLock::Stdout(lock) => lock.write(buf),
             StdioLock::Stderr(lock) => lock.write(buf),
+            StdioLock::Empty(_empty) => io::Result::Ok(0),
         }
     }
 
@@ -53,6 +57,7 @@ impl<'a> io::Write for StdioLock<'a> {
         match self {
             StdioLock::Stdout(lock) => lock.write_all(buf),
             StdioLock::Stderr(lock) => lock.write_all(buf),
+            StdioLock::Empty(_empty) => io::Result::Ok(()),
         }
     }
 
@@ -60,6 +65,7 @@ impl<'a> io::Write for StdioLock<'a> {
         match self {
             StdioLock::Stdout(lock) => lock.flush(),
             StdioLock::Stderr(lock) => lock.flush(),
+            StdioLock::Empty(_empty) => io::Result::Ok(()),
         }
     }
 }
@@ -72,6 +78,9 @@ impl<'a> MakeWriter<'a> for LogRecorder {
     }
 
     fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
+        if meta.target().starts_with("leptos") {
+            return StdioLock::Empty(self.empty);
+        }
         if meta.level() <= &Level::WARN {
             return StdioLock::Stderr(self.stderr.lock());
         }
@@ -97,16 +106,9 @@ pub fn init_tracing() {
             .with(LevelFilter::TRACE)
             .with(JsonStorageLayer)
             .with(BunyanFormattingLayer::new(
-                "webserver".into(),
+                "pemasak-infra".into(),
                 LogRecorder::new().with_max_level(level),
             ))
-            // .with(
-            //     // use tracing_subscriber stdout without bunyan
-            //     tracing_subscriber::fmt::layer()
-            //         .json()
-            //         .with_writer(LogRecorder::new())
-            //         .with_ansi(false),
-            // )
             .init();
     }
 }
