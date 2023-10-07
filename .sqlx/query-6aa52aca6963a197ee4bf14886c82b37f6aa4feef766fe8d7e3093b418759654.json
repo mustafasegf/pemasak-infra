@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO owners (id, name) VALUES ($1, $2)",
+  "query": "INSERT INTO project_owners (id, name) VALUES ($1, $2)",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "32f52b34eea20ff8d7ad04ada3cd0e609829bb603a568ab12fe610296fb4e3ac"
+  "hash": "6aa52aca6963a197ee4bf14886c82b37f6aa4feef766fe8d7e3093b418759654"
 }
