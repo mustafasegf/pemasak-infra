@@ -64,6 +64,13 @@ pub async fn fallback(
 
     tracing::info!(hostname, sub_domain);
 
+    if sub_domain.is_empty() {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::empty())
+            .unwrap();
+    }
+
     // let map = REGISTERED_ROUTES.read().unwrap();
     // let route = map.get(sub_domain);
     let route = Some("172.31.0.2:80".to_string());
