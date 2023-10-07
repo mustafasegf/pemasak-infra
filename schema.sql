@@ -11,6 +11,7 @@ CREATE TABLE users (
   CONSTRAINT unique_username UNIQUE (username)
 );
 
+-- TODO: change this to per project
 CREATE TABLE api_token (
   id          UUID          NOT NULL,
   user_id     UUID          NOT NULL,
@@ -35,7 +36,6 @@ CREATE TABLE sessions (
   session TEXT NOT NULL
 );
 
--- TODO: make a way to owners must have atleast one user
 CREATE TABLE owners (
   id          UUID          NOT NULL,
   name        TEXT          NOT NULL,
@@ -46,6 +46,7 @@ CREATE TABLE owners (
   PRIMARY KEY (id)
 );
 
+-- TODO: make a way to owners must have atleast one user
 CREATE TABLE users_owners (
   user_id     UUID          NOT NULL,
   owner_id    UUID          NOT NULL,
