@@ -28,6 +28,43 @@ async fn main() {
         }
     };
 
+    // check if the database is up
+    if let Err(err) = sqlx::query("SELECT 1")
+        .fetch_one(&pool)
+        .await
+        .map(|_| ())
+    {
+        tracing::error!("Failed to query Postgres: {}", err);
+        process::exit(1);
+    }
+
+    // check if atlas_chema_revisions exist
+    // TODO: maybe rethink this if we actually want to use this table
+    match sqlx::query(r#"SELECT * FROM information_schema.tables 
+                         WHERE table_schema = 'public' 
+                         AND table_name = 'atlas_schema_revisions'"#)
+        .fetch_one(&pool)
+        .await
+        .map(|_| ())
+    { 
+        Ok(_) => {},
+        Err(sqlx::Error::RowNotFound) => {
+            tracing::error!("Failed to query Postgres: atlas_schema_revisions table not found");
+            process::exit(1);
+        },
+        Err(err) => {
+            tracing::error!("Failed to query Postgres: {}", err);
+            process::exit(1);
+        }
+    }
+
+    // check docker permissions
+    if let Err(err) = tokio::fs::metadata("/var/run/docker.sock").await {
+        tracing::error!("Failed to access docker socket: {}", err);
+        process::exit(1);
+    }
+
+
     let state = startup::AppState {
         base: config.git.base.clone(),
         auth: config.application.auth,
