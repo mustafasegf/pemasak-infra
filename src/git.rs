@@ -12,13 +12,11 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use axum_extra::routing::RouterExt;
 use git2::Repository;
 use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
 
 use anyhow::Result;
 use serde::Deserialize;
-use serde_json::json;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -74,7 +72,6 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
             get(get_pack_or_idx_file),
         )
         // not git server related
-        .route_with_tsr("/:owner/:repo", post(create_new_repo).delete(delete_repo))
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(config.body_limit()))
         .with_state(state)
@@ -552,70 +549,4 @@ pub async fn get_info_refs(
         )
         .body(Body::from(body))
         .unwrap()
-}
-
-pub async fn create_new_repo(
-    Path((owner, repo)): Path<(String, String)>,
-    State(AppState { base, .. }): State<AppState>,
-) -> Response<Body> {
-    // check if repo exists
-    let path = match repo.ends_with(".git") {
-        true => format!("{base}/{owner}/{repo}"),
-        false => format!("{base}/{owner}/{repo}.git"),
-    };
-
-    if File::open(&path).is_ok() {
-        return Response::builder()
-            .status(StatusCode::CONFLICT)
-            .body(Body::from(json!({"message": "repo exist"}).to_string()))
-            .unwrap();
-    };
-
-    match git2::Repository::init_bare(&path) {
-        Ok(_) => Response::builder()
-            .body(Body::from(
-                json!({"message": "repo created successfully"}).to_string(),
-            ))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(
-                json!({"message": format!("failed to init repo: {}", e)}).to_string(),
-            ))
-            .unwrap(),
-    }
-}
-
-pub async fn delete_repo(
-    Path((owner, repo)): Path<(String, String)>,
-    State(AppState { base, .. }): State<AppState>,
-) -> Response<Body> {
-    let path = match repo.ends_with(".git") {
-        true => format!("{base}/{owner}/{repo}"),
-        false => format!("{base}/{owner}/{repo}.git"),
-    };
-
-    // check if repo exists
-    if File::open(&path).is_err() {
-        return Response::builder()
-            .status(StatusCode::UNPROCESSABLE_ENTITY)
-            .body(Body::from(
-                json!({"message": "repo doesn't exist"}).to_string(),
-            ))
-            .unwrap();
-    };
-
-    match std::fs::remove_dir_all(&path) {
-        Ok(_) => Response::builder()
-            .body(Body::from(
-                json!({"message": "repo deleted successfully"}).to_string(),
-            ))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(
-                json!({"message": format!("failed to delete repo: {}", e)}).to_string(),
-            ))
-            .unwrap(),
-    }
 }

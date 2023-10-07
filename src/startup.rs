@@ -1,15 +1,19 @@
 use axum::extract::{Host, State};
 use axum::Router;
 
+use axum_session::{SessionLayer, SessionPgPool};
+use axum_session_auth::AuthSessionLayer;
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
+use uuid::Uuid;
 
 use std::net::TcpListener;
 
+use crate::auth::User;
 use crate::configuration::Settings;
-use crate::{auth, git, telemetry};
+use crate::{auth, git, telemetry, projects};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -22,6 +26,9 @@ pub struct AppState {
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
     let http_trace = telemetry::http_trace_layer();
+    let pool = state.pool.clone();
+
+    let (auth_config, session_store) = auth::auth_layer(&pool).await;
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
@@ -29,12 +36,19 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
     let git_router = git::router(state.clone(), &config);
     let auth_router = auth::router(state.clone(), &config).await;
+    let project_router = projects::router(state.clone(), &config).await;
 
     let app = Router::new()
         .merge(git_router)
         .merge(auth_router)
+        .merge(project_router)
         .layer(http_trace)
         .fallback(fallback)
+        .layer(
+            AuthSessionLayer::<User, Uuid, SessionPgPool, PgPool>::new(Some(pool.clone()))
+                .with_config(auth_config),
+        )
+        .layer(SessionLayer::new(session_store))
         .with_state(state)
         .layer(cors);
 
