@@ -64,9 +64,13 @@
           checks = self.checks.${system};
           packages = with pkgs; [
             bacon
-            atlas
             bunyan-rs
+            yj
           ];
+
+          shellHook = ''
+            export PATH="$PATH:$GOPATH/bin"
+          '';
         };
       }
     );
