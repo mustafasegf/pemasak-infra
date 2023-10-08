@@ -340,52 +340,51 @@ pub async fn delete_project_api(
         }
     };
 
-    // check if project
-    match sqlx::query!(
+    // check if project exist
+    let mut errs = match sqlx::query!(
         r#"SELECT id FROM projects WHERE name = $1 AND owner_id = $2"#,
         project,
         owner_id,
     ).fetch_one(&pool).await {
-        Err(sqlx::Error::RowNotFound) => {},
         Ok(_) => {
-            return Response::builder()
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .body(Body::from(
-                    json!({"message": "project doesn't exist"}).to_string(),
-                ))
-                .unwrap();
+            match sqlx::query!("DELETE FROM projects WHERE name = $1 AND owner_id = $2", project, owner_id)
+                .execute(&pool)
+                .await 
+            {
+                Ok(_) => vec![],
+                Err(err) => vec![anyhow::anyhow!("failed to delete project: {}", err)]
+            }
         },
-        Err(err) => {
-            tracing::error!("Failed to query database: {}", err);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(
-                    json!({"message": "failed to query database"}).to_string(),
-                ))
-                .unwrap();
-        }
-    }
+        Err(sqlx::Error::RowNotFound) => vec![],
+        Err(_err) => vec![anyhow::anyhow!("failed to query database")],
+    };
+    
     // check if repo exists
-    if File::open(&path).is_err() {
-        return Response::builder()
-            .status(StatusCode::UNPROCESSABLE_ENTITY)
-            .body(Body::from(
-                json!({"message": "repo doesn't exist"}).to_string(),
-            ))
-            .unwrap();
+    match File::open(&path) {
+        Err(e) => errs.push(anyhow::anyhow!("failed to open repo: {}", e)),
+        Ok(_) => {
+            match std::fs::remove_dir_all(&path) {
+                Ok(_) => {},
+                Err(e) => errs.push(anyhow::anyhow!("failed to delete repo: {}", e)),
+            }
+        },
     };
 
-    match std::fs::remove_dir_all(&path) {
-        Ok(_) => Response::builder()
+    match errs.as_slice() {
+        [] => {
+        Response::builder()
             .body(Body::from(
                 json!({"message": "repo deleted successfully"}).to_string(),
             ))
-            .unwrap(),
-        Err(e) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(
-                json!({"message": format!("failed to delete repo: {}", e)}).to_string(),
-            ))
-            .unwrap(),
+            .unwrap()
+        }
+        errs => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(
+                    json!({"message": format!("failed to delete project: {:?}", errs)}).to_string(),
+                ))
+                .unwrap();
+        }
     }
 }
