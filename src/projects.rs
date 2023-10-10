@@ -169,26 +169,43 @@ pub async fn create_project(
 
     Html(render_to_string(move || { view! {
         <h1> Project created successfully  </h1>
-        <div class="p-4 bg-gray-800">
+        <div class="p-4 mb-4 bg-gray-800">
             <pre><code id="code"> 
                 git remote add origin {format!(" http://{domain}/{owner}/{project}")} <br/>
                 {"git push -u origin master"}
             </code></pre>
         </div>
-        project token: {token}
         <button
-        class="btn btn-outline btn-secondary mt-4"
-        onclick="
-            let lb = '\\n'
-            if(navigator.userAgent.indexOf('Windows') != -1) {{
-              lb = '\\r\\n'
-            }}
+            class="btn btn-outline btn-secondary mb-4"
+            onclick="
+                let lb = '\\n'
+                if(navigator.userAgent.indexOf('Windows') != -1) {{
+                  lb = '\\r\\n'
+                }}
 
-            let text = document.getElementById('code').getInnerHTML().replaceAll('<br>', lb)
-            if ('clipboard' in window.navigator) {{
-                navigator.clipboard.writeText(text)
-            }}"
-        > Copy to clipboard </button>
+                let text = document.getElementById('code').getInnerHTML().replaceAll('<br>', lb)
+                if ('clipboard' in window.navigator) {{
+                    navigator.clipboard.writeText(text)
+                }}"
+        >
+          Copy to clipboard 
+        </button>
+
+        <div class="p-4 mb-4 bg-gray-800">
+            <pre><code> 
+              project token: <span id="token">{token} </span>
+            </code></pre>
+        </div>
+        <button
+            class="btn btn-outline btn-secondary"
+            onclick="
+                let text = document.getElementById('token').innerText
+                if ('clipboard' in window.navigator) {{
+                    navigator.clipboard.writeText(text)
+                }}"
+        >
+          Copy to clipboard 
+        </button>
     }}).into_owned())
 }
 

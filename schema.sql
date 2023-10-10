@@ -16,6 +16,7 @@ CREATE TABLE users (
 
 CREATE TABLE project_owners (
   id          UUID          NOT NULL,
+  -- TODO: make this unique
   name        TEXT          NOT NULL,
   created_at  TIMESTAMPTZ   NOT NULL default now(),
   updated_at  TIMESTAMPTZ   NOT NULL default now(),
