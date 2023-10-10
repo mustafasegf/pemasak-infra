@@ -20,21 +20,21 @@ use axum::{
 use git2::Repository;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{
-    body::Bytes,
-    http::response::Builder as ResponseBuilder,
-    Body, HeaderMap, Request, StatusCode,
+    body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, Request, StatusCode,
 };
 
 use anyhow::Result;
 use serde::Deserialize;
+use serde_json::json;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
+use ulid::Ulid;
+use uuid::Uuid;
 
 use crate::docker::build_docker;
 use crate::{configuration::Settings, startup::AppState};
 
 use data_encoding::BASE64;
-
 
 async fn basic_auth<B>(
     State(AppState { pool, auth, .. }): State<AppState>,
@@ -75,8 +75,6 @@ async fn basic_auth<B>(
             let owner_name = parts.next().unwrap_or("");
             let token = parts.next().unwrap_or("");
 
-
-
             let tokens = match sqlx::query!(
                 r#"SELECT api_token.token
                     FROM project_owners
@@ -84,7 +82,10 @@ async fn basic_auth<B>(
                     JOIN api_token ON projects.id = api_token.project_id
                     WHERE project_owners.name = $1"#,
                 owner_name
-            ).fetch_all(&pool).await {
+            )
+            .fetch_all(&pool)
+            .await
+            {
                 Ok(tokens) => tokens,
                 Err(sqlx::Error::RowNotFound) => return Err(auth_failed),
                 Err(_) => return Err(auth_err),
@@ -92,11 +93,11 @@ async fn basic_auth<B>(
 
             let hasher = Argon2::default();
             let authenticaed = tokens.iter().any(|rec| {
-                PasswordHash::new(&rec.token).and_then(|hash| {
-                  hasher.verify_password(token.as_bytes(), &hash)
-                }).is_ok()
+                PasswordHash::new(&rec.token)
+                    .and_then(|hash| hasher.verify_password(token.as_bytes(), &hash))
+                    .is_ok()
             });
-            if !authenticaed {  
+            if !authenticaed {
                 return Err(auth_failed);
             }
 
@@ -157,7 +158,7 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
         // not git server related
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(config.body_limit()))
-        // .with_state(state)
+    // .with_state(state)
 }
 
 async fn git_command<P, IA, S, IE, K, V>(dir: P, args: IA, envs: IE) -> Result<Output>
@@ -382,7 +383,9 @@ fn normal_merge(
 
 pub async fn recieve_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
-    State(AppState { base, .. }): State<AppState>,
+    State(AppState {
+        pool, base, domain, ..
+    }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
@@ -462,15 +465,100 @@ pub async fn recieve_pack_rpc(
         };
     };
 
-    if let Err(e) = build_docker(container_name, &container_src).await {
-        println!("error -> {:#?}", e);
-        return Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::empty())
-            .unwrap();
+    let ip = match build_docker(container_name, &container_src).await {
+        Ok(ip) => ip,
+        Err(err) => {
+            println!("error -> {:#?}", err);
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
     };
 
-    println!("container run on go-example:localhost:8080");
+    let project = match sqlx::query!(
+        r#"SELECT projects.id
+            FROM projects
+            JOIN project_owners ON projects.owner_id = project_owners.id
+            WHERE project_owners.name = $1
+            AND projects.name = $2"#,
+        owner,
+        repo
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(project)) => project,
+        Err(err) => {
+            tracing::error!("failed to query database {}", err);
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
+        Ok(None) => {
+            return Response::builder()
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .body(Body::from(
+                    json!({
+                        "error": "project not found"
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+        }
+    };
+
+    // TODO: get port from docker
+    let port = 80;
+
+    // check if projects already have domain
+    // TODO: maybe use monad
+    let subdomain = match sqlx::query!(
+        r#"SELECT domains.name
+           FROM domains
+           WHERE domains.project_id = $1"#,
+        project.id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(subdomain)) => subdomain.name,
+        Err(err) => {
+            tracing::error!("failed to query database {}", err);
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
+        Ok(None) => {
+            // create domain
+            // TODO: clean up this mess
+            let subdomain = format!("{owner}-{repo}");
+            let id = Uuid::from(Ulid::new());
+            if let Err(err) = sqlx::query!(
+                r#"INSERT INTO domains (id, project_id, name, port, docker_ip)
+                   VALUES ($1, $2, $3, $4, $5)"#,
+                id,
+                project.id,
+                subdomain,
+                port,
+                ip,
+            )
+            .execute(&pool)
+            .await
+            {
+                tracing::error!("failed to query database {}", err);
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::empty())
+                    .unwrap();
+            }
+            subdomain
+        }
+    };
+
+    println!("container run on {subdomain}:{domain}");
 
     res
 }
