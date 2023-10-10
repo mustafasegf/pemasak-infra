@@ -1,4 +1,4 @@
-#!//usr/bin/env bash
+#!/usr/bin/env bash
 echo "making migrations $@"
 
 atlas migrate diff $@ \

@@ -1,4 +1,4 @@
-#!//usr/bin/env bash
+#!/usr/bin/env bash
 json=$(cat configuration.yml| yj)
 # Extract values using jq
 db_user=$(echo "$json" | jq -r '.database.user')
