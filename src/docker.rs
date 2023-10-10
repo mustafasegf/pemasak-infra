@@ -16,7 +16,7 @@ use nixpacks::{
 };
 
 #[tracing::instrument]
-pub async fn build_docker(container_name: &str, container_src: &str) -> Result<()> {
+pub async fn build_docker(container_name: &str, container_src: &str) -> Result<String> {
     let image_name = format!("{}:latest", container_name);
     let old_image_name = format!("{}:old", container_name);
     let network_name = format!("{}-network", container_name);
@@ -210,6 +210,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
 
     tracing::info!("connect network response-> {:#?}", res);
 
+    // TODO: put in port env
     docker
         .start_container(container_name, None::<StartContainerOptions<String>>)
         .await
@@ -233,7 +234,7 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
             err
         })?;
 
-    let ip = &network_inspect
+    let ip = network_inspect
         .containers
         .unwrap_or_default()
         .get(&res.id)
@@ -243,5 +244,5 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         .unwrap_or_default();
 
     tracing::info!(ip);
-    Ok(())
+    Ok(ip)
 }

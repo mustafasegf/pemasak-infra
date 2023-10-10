@@ -13,7 +13,7 @@ use std::net::TcpListener;
 
 use crate::auth::User;
 use crate::configuration::Settings;
-use crate::{auth, git, telemetry, projects};
+use crate::{auth, git, projects, telemetry};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -67,36 +67,55 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
 // TODO: use db
 pub async fn fallback(
-    State(AppState { client, domain, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        client,
+        domain,
+        ..
+    }): State<AppState>,
     Host(hostname): Host,
     uri: axum::http::Uri,
     mut req: Request<Body>,
 ) -> Response<Body> {
-    let sub_domain = hostname
+    let subdomain = hostname
         .trim_end_matches(domain.as_str())
         .trim_end_matches('.');
 
-    tracing::info!(hostname, sub_domain);
-
-    if sub_domain.is_empty() {
+    if subdomain.is_empty() {
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(Body::empty())
             .unwrap();
     }
 
-    // let map = REGISTERED_ROUTES.read().unwrap();
-    // let route = map.get(sub_domain);
-    let route = Some("172.31.0.2:80".to_string());
+    tracing::info!(subdomain);
 
-    match route {
-        Some(route) => {
-            let uri = format!("http://{}{}", route, uri);
+    // let route = Some("172.31.0.2:80".to_string());
+    match sqlx::query!(
+        r#"SELECT docker_ip, port
+           FROM domains
+           WHERE name = $1
+        "#,
+        subdomain
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(route)) => {
+            let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
             *req.uri_mut() = Uri::try_from(uri).unwrap();
             client.request(req).await.unwrap()
         }
-        None => {
+        Ok(None) => {
             tracing::debug!("route not found uri -> {:#?}", uri);
+
+            Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::empty())
+                .unwrap()
+        }
+        Err(err) => {
+            tracing::error!("route not found uri -> {:#?}", err);
 
             Response::builder()
                 .status(StatusCode::BAD_REQUEST)
