@@ -25,7 +25,7 @@ CREATE TABLE project_owners (
   PRIMARY KEY (id)
 );
 
--- TODO: make a way to owners must have atleast one user
+-- TODO: make a way to owners must have atleast one user. posibly with trigger or better constraint
 -- for many to many relationship
 CREATE TABLE users_owners (
   user_id     UUID          NOT NULL,
@@ -53,14 +53,18 @@ CREATE TABLE projects (
 
 CREATE TABLE domains (
   id          UUID          NOT NULL,
-  projects_id UUID          NOT NULL,
+  project_id  UUID          NOT NULL,
   name        TEXT          NOT NULL,
+  port        INTEGER       NOT NULL,
+  docker_ip   TEXT          NOT NULL,
+  -- TODO: rethink if we need this on a seperate table
+  db_url      TEXT,
   created_at  TIMESTAMPTZ   NOT NULL default now(),
   updated_at  TIMESTAMPTZ   NOT NULL default now(),
   deleted_at  TIMESTAMPTZ,
 
   PRIMARY KEY (id),
-  FOREIGN KEY (projects_id) REFERENCES projects(id) ON DELETE CASCADE ON UPDATE CASCADE
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 CREATE TABLE api_token (
