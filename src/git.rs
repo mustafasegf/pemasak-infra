@@ -6,14 +6,26 @@ use std::{
     process::{Output, Stdio},
 };
 
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
+use async_trait::async_trait;
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{DefaultBodyLimit, FromRequestParts, Path, Query, State},
+    headers::{authorization::Basic, Authorization},
+    middleware::{self, Next},
     response::Response,
     routing::{get, post},
-    Router,
+    Router, TypedHeader,
 };
 use git2::Repository;
-use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, StatusCode};
+use http_body::combinators::UnsyncBoxBody;
+use hyper::{
+    body::Bytes,
+    http::{request::Parts, response::Builder as ResponseBuilder},
+    Body, HeaderMap, Request, StatusCode,
+};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -22,6 +34,78 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::docker::build_docker;
 use crate::{configuration::Settings, startup::AppState};
+
+use data_encoding::BASE64;
+
+
+async fn basic_auth<B>(
+    State(AppState { pool, auth, .. }): State<AppState>,
+    headers: HeaderMap,
+    request: Request<B>,
+    next: Next<B>,
+) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
+    if !auth {
+        return Ok(next.run(request).await);
+    }
+
+    let auth_err = Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .header("WWW-Authenticate", "Basic realm=\"git\"")
+        .body(Body::empty())
+        .unwrap();
+
+    let auth_failed = Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .header("WWW-Authenticate", "Basic realm=\"failed to login\"")
+        .body(Body::empty())
+        .unwrap();
+
+    match headers.get("Authorization").and_then(|v| v.to_str().ok()) {
+        None => Err(auth_err),
+        Some(auth) => {
+            let mut parts = auth.split_whitespace();
+            let scheme = parts.next().unwrap_or("");
+            let token = parts.next().unwrap_or("");
+
+            if scheme != "Basic" {
+                return Err(auth_err);
+            }
+
+            let decoded = BASE64.decode(token.as_bytes()).unwrap();
+            let decoded = String::from_utf8(decoded).unwrap();
+            let mut parts = decoded.split(":");
+            let owner_name = parts.next().unwrap_or("");
+            let token = parts.next().unwrap_or("");
+
+
+
+            let tokens = match sqlx::query!(
+                r#"SELECT api_token.token
+                    FROM project_owners
+                    JOIN projects ON project_owners.id = projects.owner_id
+                    JOIN api_token ON projects.id = api_token.project_id
+                    WHERE project_owners.name = $1"#,
+                owner_name
+            ).fetch_all(&pool).await {
+                Ok(tokens) => tokens,
+                Err(sqlx::Error::RowNotFound) => return Err(auth_failed),
+                Err(_) => return Err(auth_err),
+            };
+
+            let hasher = Argon2::default();
+            let authenticaed = tokens.iter().any(|rec| {
+                PasswordHash::new(&rec.token).and_then(|hash| {
+                  hasher.verify_password(token.as_bytes(), &hash)
+                }).is_ok()
+            });
+            if !authenticaed {  
+                return Err(auth_failed);
+            }
+
+            return Ok(next.run(request).await);
+        }
+    }
+}
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
     // TODO: add auth check
@@ -71,10 +155,11 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
             "/:owner/:repo/objects/packs/:file",
             get(get_pack_or_idx_file),
         )
+        .route_layer(middleware::from_fn_with_state(state, basic_auth))
         // not git server related
         .layer(DefaultBodyLimit::disable())
         .layer(RequestBodyLimitLayer::new(config.body_limit()))
-        .with_state(state)
+        // .with_state(state)
 }
 
 async fn git_command<P, IA, S, IE, K, V>(dir: P, args: IA, envs: IE) -> Result<Output>
@@ -398,12 +483,19 @@ pub async fn upload_pack_rpc(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    let path = match repo.ends_with(".git") {
-        true => format!("{base}/{owner}/{repo}"),
-        false => format!("{base}/{owner}/{repo}.git"),
-    };
+    // tracing::warn!("username: {}, token: {:?}", username, token);
 
-    service_rpc("upload-pack", &path, headers, body).await
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::empty())
+        .unwrap()
+
+    // let path = match repo.ends_with(".git") {
+    //     true => format!("{base}/{owner}/{repo}"),
+    //     false => format!("{base}/{owner}/{repo}.git"),
+    // };
+
+    // service_rpc("upload-pack", &path, headers, body).await
 }
 
 pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
