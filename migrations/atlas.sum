@@ -1,2 +1,4 @@
-h1:6Gw9sbRL2NyWCs17EFRprmwXgwb0Hu2L987YVCX+usI=
+h1:PQdeXeo45yLPH0St90JaNM79joWUT1sx1rZpD1jrXFU=
 20231007150016_init.sql h1:rqZJtLRKZS11n4sUwPLU5ONxi0yrVSjwI+u2vMD0GZA=
+20231010140913_add_network_info_on_domains.sql h1:+0iRnWybkPR7Ql7MsqOEzYWhIMaRy5aYEeou/rxv6zU=
+20231010141823_change_id_in_domains.sql h1:Tpm0+DQ0C9399qQCnj2Z/WI8i6t/hgoGQG+BhpWTy6Q=
