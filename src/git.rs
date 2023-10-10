@@ -7,23 +7,21 @@ use std::{
 };
 
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordVerifier},
     Argon2,
 };
-use async_trait::async_trait;
 use axum::{
-    extract::{DefaultBodyLimit, FromRequestParts, Path, Query, State},
-    headers::{authorization::Basic, Authorization},
+    extract::{DefaultBodyLimit, Path, Query, State},
     middleware::{self, Next},
     response::Response,
     routing::{get, post},
-    Router, TypedHeader,
+    Router,
 };
 use git2::Repository;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{
     body::Bytes,
-    http::{request::Parts, response::Builder as ResponseBuilder},
+    http::response::Builder as ResponseBuilder,
     Body, HeaderMap, Request, StatusCode,
 };
 
@@ -483,19 +481,12 @@ pub async fn upload_pack_rpc(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response<Body> {
-    // tracing::warn!("username: {}, token: {:?}", username, token);
+    let path = match repo.ends_with(".git") {
+        true => format!("{base}/{owner}/{repo}"),
+        false => format!("{base}/{owner}/{repo}.git"),
+    };
 
-    Response::builder()
-        .status(StatusCode::OK)
-        .body(Body::empty())
-        .unwrap()
-
-    // let path = match repo.ends_with(".git") {
-    //     true => format!("{base}/{owner}/{repo}"),
-    //     false => format!("{base}/{owner}/{repo}.git"),
-    // };
-
-    // service_rpc("upload-pack", &path, headers, body).await
+    service_rpc("upload-pack", &path, headers, body).await
 }
 
 pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes) -> Response<Body> {
