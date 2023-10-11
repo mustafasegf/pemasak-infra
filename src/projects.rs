@@ -33,6 +33,7 @@ const TOKEN_LENGTH: usize = 32;
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route("/new", get(create_project_ui).post(create_project))
+        .route("/dashboard", get(dashboard_ui).post(create_project))
         .route_with_tsr("/:owner/:project", delete(delete_project_api))
 }
 
@@ -292,6 +293,59 @@ pub async fn create_project_ui(
                 <button class="mt-4 btn btn-primary w-full max-w-xs">Create Project</button>
             </form>
             <div id="result"></div>
+        </Base>
+    }).into_owned();
+    Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
+}
+
+
+#[tracing::instrument(skip(auth, pool))]
+pub async fn dashboard_ui(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    State(AppState { pool, .. }): State<AppState>,
+) -> Response<Body> {
+    // TODO: move this logic to middleware
+    let user = match auth.current_user {
+        Some(user) => user,
+        None => {
+            return Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap();
+        }
+    };
+
+    let projects = match sqlx::query!(
+        r#"SELECT projects.name AS project , project_owners.name AS owner
+            FROM projects
+            JOIN project_owners ON projects.owner_id = project_owners.id
+            JOIN users_owners ON project_owners.id = users_owners.owner_id
+            JOIN users ON users_owners.user_id = users.id
+            WHERE users.id = $1"#,
+        user.id
+    ).fetch_all(&pool).await {
+        Ok(data) => data,
+        Err(err) => {
+            tracing::error!("Failed to query database: {}", err);
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to query database {err.to_string() } </h1>
+                }
+            }).into_owned();
+            return Response::builder().status(500).body(Body::from(html)).unwrap();
+        }
+    };
+
+    let html = render_to_string(move || view! {
+        <Base>
+            <h1 class="text-2xl font-bold">Your Projects</h1>
+            <h3 class="text-lg"> {format!("login as {}", user.username)} </h3>
+            <div hx-boost="true" class="flex flex-col gap-4">
+                {projects.into_iter().map(|record|{ view!{ 
+                <div class="bg-neutral text-info py-4 px-8 w-full">
+                    {let name = format!("{}/{}", record.owner, record.project);
+                    view!{<a href={name.clone()} class="text-sm">{name}</a>}}
+                </div>
+                }}).collect::<Vec<_>>()}
+                <a href="/new" class="mt-4 btn btn-primary w-full max-w-xs">Create Project</a>
+            </div>
         </Base>
     }).into_owned();
     Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()

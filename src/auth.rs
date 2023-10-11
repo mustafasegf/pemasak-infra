@@ -378,7 +378,7 @@ pub async fn register_user(
             let html = render_to_string(|| { view! {
                 <h1> User created </h1>
             }}).into_owned();
-            Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").header("HX-Location", "/new").body(Body::from(html)).unwrap()
+            Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").header("HX-Location", "/dashboard").body(Body::from(html)).unwrap()
         }
     }
 
@@ -462,7 +462,7 @@ pub async fn login_user(
 
     auth.login_user(user.id);
     // TODO: redirect to user dashboard
-    Response::builder().status(StatusCode::FOUND).header("HX-Location", "/new").body(Body::empty()).unwrap()
+    Response::builder().status(StatusCode::FOUND).header("HX-Location", "/dashboard").body(Body::empty()).unwrap()
 }
 
 #[tracing::instrument(skip(auth))]
