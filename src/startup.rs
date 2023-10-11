@@ -90,7 +90,6 @@ pub async fn fallback(
 
     tracing::info!(subdomain);
 
-    // let route = Some("172.31.0.2:80".to_string());
     match sqlx::query!(
         r#"SELECT docker_ip, port
            FROM domains
