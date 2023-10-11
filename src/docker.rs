@@ -134,6 +134,8 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<S
 
     let config = Config {
         image: Some(image_name.clone()),
+        // TDDO: rethink if we need to make this configurable
+        env: Some(vec!["PORT=80".to_string()]),
         ..Default::default()
     };
 
