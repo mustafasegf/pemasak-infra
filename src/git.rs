@@ -395,7 +395,7 @@ pub async fn recieve_pack_rpc(
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
     let container_src = format!("{path}/master");
-    let container_name = repo.trim_end_matches(".git");
+    let container_name = format!("{owner}-{}",repo.trim_end_matches(".git"));
 
     // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {
@@ -465,7 +465,7 @@ pub async fn recieve_pack_rpc(
         };
     };
 
-    let ip = match build_docker(container_name, &container_src).await {
+    let ip = match build_docker(&container_name, &container_src).await {
         Ok(ip) => ip,
         Err(err) => {
             println!("error -> {:#?}", err);
