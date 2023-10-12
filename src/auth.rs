@@ -4,10 +4,12 @@ use axum::{
     extract::State,
     response::{Html, Response},
     routing::get,
-    Form, Router,
+    Form, Router, middleware::Next,
 };
 use axum_session::{SessionConfig, SessionStore};
-use hyper::{Body, StatusCode};
+use bytes::Bytes;
+use http_body::combinators::UnsyncBoxBody;
+use hyper::{Body, StatusCode, Request};
 use leptos::{*, ssr::render_to_string};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,22 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route("/register", get(register_user_ui).post(register_user))
         .route("/login", get(login_user_ui).post(login_user))
         .route("/logout", get(logout_user).post(logout_user))
+}
+
+pub async fn auth<B>(
+    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    request: Request<B>,
+    next: Next<B>,
+) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
+    if auth.current_user.is_none() {
+        return Err(Response::builder()
+            .status(StatusCode::FOUND)
+            .header("Location", "/login")
+            .body(Body::empty())
+            .unwrap());
+    }
+
+    Ok(next.run(request).await)
 }
 
 pub async fn auth_layer(pool: &PgPool) -> (AuthConfig<Uuid>, SessionStore<SessionPgPool>)  {

@@ -4,7 +4,7 @@ use axum::{
     extract::{State, Path},
     response::{Html, Response},
     routing::{get, delete},
-    Form, Router,
+    Form, Router, middleware,
 };
 use axum_extra::routing::RouterExt;
 use serde_json::json;
@@ -23,7 +23,7 @@ use argon2::{
 };
 use rand::{Rng, SeedableRng};
 
-use crate::{startup::AppState, configuration::Settings, auth::User, components::Base};
+use crate::{startup::AppState, configuration::Settings, auth::{User, auth}, components::Base};
 
 // Base64 url safe
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -35,12 +35,13 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route("/new", get(create_project_ui).post(create_project))
         .route("/dashboard", get(dashboard_ui).post(create_project))
         .route_with_tsr("/:owner/:project", delete(delete_project_api))
+        .route_layer(middleware::from_fn(auth))
+        
 }
-
 
 // TODO: we need to finalize the working between repo and project
 #[derive(Deserialize)]
-pub struct RepoRequest {
+pub struct CreateProjectRequest {
     pub owner: String,
     pub project: String,
 }
@@ -49,10 +50,10 @@ pub struct RepoRequest {
 pub async fn create_project(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, base, domain, .. }): State<AppState>,
-    Form(RepoRequest {
+    Form(CreateProjectRequest {
         owner,
         project,
-    }): Form<RepoRequest>,
+    }): Form<CreateProjectRequest>,
 ) -> Html<String> {
     //check auth
     if auth.current_user.is_none() {
@@ -229,14 +230,7 @@ pub async fn create_project_ui(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, .. }): State<AppState>,
 ) -> Response<Body> {
-    // TODO: move this logic to middleware
-    let user = match auth.current_user {
-        Some(user) => user,
-        None => {
-            return Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap();
-        }
-    };
-
+    let user = auth.current_user.unwrap();
     let user_owners: UserOwner = match sqlx::query_as!(
         UserOwner,
         r#"SELECT 
@@ -304,13 +298,7 @@ pub async fn dashboard_ui(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, .. }): State<AppState>,
 ) -> Response<Body> {
-    // TODO: move this logic to middleware
-    let user = match auth.current_user {
-        Some(user) => user,
-        None => {
-            return Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap();
-        }
-    };
+    let user = auth.current_user.unwrap();
 
     let projects = match sqlx::query!(
         r#"SELECT projects.name AS project , project_owners.name AS owner
