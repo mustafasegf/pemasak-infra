@@ -508,7 +508,7 @@ pub async fn login_user_ui(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
 ) -> Response<Body> {
     if auth.current_user.is_some() {
-        return Response::builder().status(StatusCode::FOUND).header("Location", "/user/token").body(Body::empty()).unwrap();
+        return Response::builder().status(StatusCode::FOUND).header("Location", "/dashboard").body(Body::empty()).unwrap();
     }
     let html = render_to_string(|| view! {
         <Base>
