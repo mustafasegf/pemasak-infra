@@ -1851,18 +1851,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper_cgi"
-version = "22.4.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5189b317c11b80d0dbd81ea905e91572e7b8f0f2eea968fba778a1b0bea3a601"
-dependencies = [
- "futures",
- "hyper",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "hyperlocal"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2750,7 +2738,6 @@ dependencies = [
  "git2",
  "http-body",
  "hyper",
- "hyper_cgi",
  "lazy_static",
  "leptos",
  "nixpacks",
@@ -4255,7 +4242,6 @@ checksum = "1d68074620f57a0b21594d9735eb2e98ab38b17f80d3fcb189fca266771ca60d"
 dependencies = [
  "bytes",
  "futures-core",
- "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
