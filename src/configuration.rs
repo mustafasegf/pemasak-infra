@@ -13,6 +13,7 @@ pub struct Settings {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
     pub git: GitSettings,
+    pub db_proxy: DBProxySettings,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -40,6 +41,12 @@ pub struct GitSettings {
     pub base: String,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct DBProxySettings {
+    pub host: String,
+    pub port: u16,
+}
+
 pub fn get_configuration() -> Result<Settings, ConfigError> {
     Config::builder()
         .set_default("application.host", "localhost")?
@@ -54,6 +61,8 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("database.name", "postgres")?
         .set_default("database.timeout", 20)?
         .set_default("git.base", "./src/git-repo")?
+        .set_default("db_proxy.host", "localhost")?
+        .set_default("db_proxy.port", 5432)?
         .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
         .build()?
