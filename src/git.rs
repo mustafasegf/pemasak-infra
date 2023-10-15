@@ -71,7 +71,7 @@ async fn basic_auth<B>(
 
             let decoded = BASE64.decode(token.as_bytes()).unwrap();
             let decoded = String::from_utf8(decoded).unwrap();
-            let mut parts = decoded.split(":");
+            let mut parts = decoded.split(':');
             let owner_name = parts.next().unwrap_or("");
             let token = parts.next().unwrap_or("");
 
@@ -101,7 +101,7 @@ async fn basic_auth<B>(
                 return Err(auth_failed);
             }
 
-            return Ok(next.run(request).await);
+            Ok(next.run(request).await)
         }
     }
 }

@@ -35,6 +35,8 @@ lazy_static! {
     static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9.]+$").unwrap();
 }
 
+pub type Auth = AuthSession<User, Uuid, SessionPgPool, PgPool>;
+
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route("/register", get(register_user_ui).post(register_user))
@@ -43,7 +45,7 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
 }
 
 pub async fn auth<B>(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    auth: Auth,
     request: Request<B>,
     next: Next<B>,
 ) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
@@ -59,9 +61,8 @@ pub async fn auth<B>(
 }
 
 pub async fn auth_layer(pool: &PgPool) -> (AuthConfig<Uuid>, SessionStore<SessionPgPool>)  {
-
     let session_config = SessionConfig::default();
-    let auth_config = AuthConfig::<Uuid>::default().with_anonymous_user_id(Some(Uuid::default()));
+    let auth_config = AuthConfig::<Uuid>::default();
 
     let session_store =
     SessionStore::<SessionPgPool>::new(Some(pool.clone().into()), session_config)
@@ -71,7 +72,7 @@ pub async fn auth_layer(pool: &PgPool) -> (AuthConfig<Uuid>, SessionStore<Sessio
 }
 
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct User {
     pub id: Uuid,
     pub username: String,
@@ -79,83 +80,71 @@ pub struct User {
     pub permissions: HashSet<String>,
 }
 
-impl Default for User {
-    fn default() -> Self {
-        let permissions = HashSet::new();
-
-        Self {
-            id: Uuid::default(),
-            username: "Guest".into(),
-            password: "".into(),
-            permissions,
-        }
-    }
-}
-
 // TODO: do we need this?
 impl User {
-    pub async fn get(id: Uuid, pool: &PgPool) -> Option<Self> {
-        let sqluser = sqlx::query_as::<_, SqlUser>("SELECT * FROM users WHERE id = $1")
-            .bind(id)
+    pub async fn get(id: &Uuid, pool: &PgPool) -> Result<User, sqlx::Error>  {
+        let sqluser = sqlx::query!("SELECT id, username, password FROM users WHERE id = $1", id)
             .fetch_one(pool)
-            .await
-            .ok()?;
+            .await?;
 
-        //lets just get all the tokens the user can use, we will only use the full permissions if modifing them.
-        let sql_user_perms = sqlx::query_as::<_, SqlPermissionTokens>(
+        let sql_user_perms = sqlx::query!(
             "SELECT token FROM user_permissions WHERE user_id = $1;",
+            id
         )
-        .bind(id)
         .fetch_all(pool)
-        .await
-        .ok()?;
+        .await?;
 
-        Some(sqluser.into_user(Some(sql_user_perms)))
+        Ok(Self{
+            id: sqluser.id,
+            username: sqluser.username,
+            password: sqluser.password,
+            permissions: sql_user_perms
+                    .into_iter()
+                    .map(|x| x.token)
+                    .collect()
+        })
     }
 
-    pub async fn get_from_username(name: String, pool: &PgPool) -> Option<Self> {
-        let sqluser = sqlx::query_as::<_, SqlUser>("SELECT * FROM users WHERE username = $1")
-            .bind(name)
+    pub async fn get_from_username(username: &str, pool: &PgPool) -> Result<Self, sqlx::Error> {
+        let sqluser = sqlx::query!(
+                "SELECT id, username, password FROM users WHERE username = $1",
+                username
+            )
             .fetch_one(pool)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to get user from username: {}", err);
-                err
-            })
-            .ok()?;
+            .await?;
 
-        tracing::info!("Got user from username: {:?}", sqluser);
-
-        //lets just get all the tokens the user can use, we will only use the full permissions if modifing them.
-        let sql_user_perms = sqlx::query_as::<_, SqlPermissionTokens>(
+        let sql_user_perms = sqlx::query!(
             "SELECT token FROM user_permissions WHERE user_id = $1;",
+            sqluser.id
         )
-        .bind(sqluser.id)
         .fetch_all(pool)
-        .await
-            .map_err(|err| {
-                tracing::error!("Failed to get user permissions: {}", err);
-                err
-            })
-        .ok()?;
+        .await?;
 
-        Some(sqluser.into_user(Some(sql_user_perms)))
+
+        Ok(Self{
+            id: sqluser.id,
+            username: sqluser.username,
+            password: sqluser.password,
+            permissions: sql_user_perms
+                    .into_iter()
+                    .map(|x| x.token)
+                    .collect()
+        })
+
     }
-}
-
-#[derive(sqlx::FromRow, Clone)]
-pub struct SqlPermissionTokens {
-    pub token: String,
 }
 
 #[async_trait]
 impl Authentication<User, Uuid, PgPool> for User {
-    async fn load_user(userid: Uuid, pool: Option<&PgPool>) -> Result<User, anyhow::Error> {
+    async fn load_user(id: Uuid, pool: Option<&PgPool>) -> Result<User, anyhow::Error> {
         let pool = pool.unwrap();
 
-        User::get(userid, pool)
+        User::get(&id, pool)
             .await
-            .ok_or_else(|| anyhow::anyhow!("Cannot get user"))
+            .map_err(|err| {
+                tracing::error!(?err, "Can't get user: Failed to query database");
+                anyhow::Error::new(err)
+            })
     }
 
     fn is_authenticated(&self) -> bool {
@@ -178,34 +167,8 @@ impl HasPermission<PgPool> for User {
     }
 }
 
-#[derive(sqlx::FromRow, Clone, Debug)]
-pub struct SqlUser {
-    pub id: Uuid,
-    pub username: String,
-    pub password: String,
-}
-
-impl SqlUser {
-    pub fn into_user(self, sql_user_perms: Option<Vec<SqlPermissionTokens>>) -> User {
-        User {
-            id: self.id,
-            username: self.username,
-            password: self.password,
-            permissions: if let Some(user_perms) = sql_user_perms {
-                user_perms
-                    .into_iter()
-                    .map(|x| x.token)
-                    .collect::<HashSet<String>>()
-            } else {
-                HashSet::<String>::new()
-            },
-        }
-    }
-}
-
-// bro idk why i need 3 borrows
-fn password_check(value: &Secret<String>, _ctx: &&&()) -> garde::Result {
-    if value.expose_secret().len() < 1 {
+fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
+    if value.expose_secret().is_empty() {
         return Err(garde::Error::new("Password cannot be empty"));
     }
     Ok(())
@@ -213,14 +176,14 @@ fn password_check(value: &Secret<String>, _ctx: &&&()) -> garde::Result {
 
 // why we use this and not the default garde regex match is becasue we need better error code until
 // https://github.com/jprochazk/garde/issues/7 is merged
-fn username_check(value: &String, _ctx: &&&()) -> garde::Result {
+fn username_check(value: &str, _ctx: &()) -> garde::Result {
     if !USERNAME_REGEX.is_match(value) {
         return Err(garde::Error::new("Username can only contain alphanumeric characters and dots"));
     }
     Ok(())
 }
 
-#[derive(Deserialize,Validate, Debug)]
+#[derive(Deserialize,Validate,Debug)]
 pub struct UserRequest {
     #[garde(custom(username_check))]
     pub username: String,
@@ -232,7 +195,7 @@ pub struct UserRequest {
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn register_user(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Form(req): Form<Unvalidated<UserRequest>>,
 ) -> Response<Body> {
@@ -248,12 +211,12 @@ pub async fn register_user(
 
     // check if user exists
     match sqlx::query!("SELECT username FROM users WHERE username = $1", username)
-        .fetch_one(&pool)
+        .fetch_optional(&pool)
         .await
     {
-        Err(sqlx::Error::RowNotFound) => {}
+        Ok(None) => {}
         Err(err) => {
-            tracing::error!("Failed to query database: {}", err);
+            tracing::error!(?err, "Can't get user: Failed to query database");
             let html = render_to_string(move || { view! {
                 <h1> Failed to query database {err.to_string() } </h1>
             }}).into_owned();
@@ -273,12 +236,12 @@ pub async fn register_user(
         r#"SELECT name FROM project_owners WHERE name = $1"#,
         username
     )
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await
     {
-        Err(sqlx::Error::RowNotFound) => {}
+        Ok(None) => {}
         Err(err) => {
-            tracing::error!("Failed to query database: {}", err);
+            tracing::error!(?err, "Can't get owners: Failed to query database");
             let html = render_to_string(move || { view! {
                 <h1> Failed to query database {err.to_string() } </h1>
             }}).into_owned();
@@ -300,7 +263,7 @@ pub async fn register_user(
     let password = match hasher.hash_password(password.expose_secret().as_bytes(), &salt) {
         Ok(hash) => hash,
         Err(err) => {
-            tracing::error!("Failed to hash password: {}", err);
+            tracing::error!(?err, "Can't register User: Failed to hash password");
             let html = render_to_string(move || { view! {
                 <h1> Failed to hash password {err.to_string() } </h1>
             }}).into_owned();
@@ -312,7 +275,7 @@ pub async fn register_user(
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(err) => {
-            tracing::error!("Failed to begin transaction: {}", err);
+            tracing::error!(?err, "Can't insert user: Failed to begin transaction");
             let html = render_to_string(move || { view! {
                 <h1> Failed to begin transaction {err.to_string() } </h1>
             }}).into_owned();
@@ -332,20 +295,13 @@ pub async fn register_user(
     )
     .execute(&mut *tx)
     .await {
-        tracing::error!("Failed to insert into database: {}", err);
-        let errs = match tx.rollback().await {
-            Ok(_) => vec![err],
-            Err(e) => {
-                    tracing::error!("Failed to rollback transaction: {}", e);
-                    // TODO: check back if we need this
-                    vec![err, e]
-                },
-        };
+        tracing::error!(?err, "Can't insert user: Failed to insert into database");
+        if let Err(err) = tx.rollback().await {
+            tracing::error!(?err, "Can't insert user: Failed to rollback transaction");
+        }
+
         let html = render_to_string(move || { view! {
-            <h1> Failed to insert into database { 
-                   errs.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
-                 }
-            </h1>
+            <h1> Failed to insert into database </h1>
         }}).into_owned();
         
         return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
@@ -360,20 +316,13 @@ pub async fn register_user(
     )
     .execute(&mut *tx)
     .await {
-        tracing::error!("Failed to insert into database: {}", err);
-        let errs = match tx.rollback().await {
-            Ok(_) => vec![err],
-            Err(e) => {
-                    tracing::error!("Failed to rollback transaction: {}", e);
-                    // TODO: check back if we need this
-                    vec![err, e]
-                },
-        };
+        tracing::error!(?err, "Can't insert project_owners: Failed to insert into database");
+        if let Err(err) = tx.rollback().await {
+            tracing::error!(?err, "Can't insert project_owners: Failed to rollback transaction");
+        }
+
         let html = render_to_string(move || { view! {
-            <h1> Failed to insert into database { 
-                   errs.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
-                 }
-            </h1>
+            <h1>Failed to insert into database</h1>
         }}).into_owned();
         return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
     };
@@ -385,20 +334,13 @@ pub async fn register_user(
         )
         .execute(&mut *tx)
         .await {
-        tracing::error!("Failed to insert into database: {}", err);
-        let errs = match tx.rollback().await {
-            Ok(_) => vec![err],
-            Err(e) => {
-                    tracing::error!("Failed to rollback transaction: {}", e);
-                    // TODO: check back if we need this
-                    vec![err, e]
-                },
-        };
+        tracing::error!(?err, "Can't insert users_owners: Failed to insert into database");
+
+        if let Err(err) = tx.rollback().await {
+            tracing::error!(?err, "Can't insert users_owners: Failed to rollback transaction");
+        }
         let html = render_to_string(move || { view! {
-            <h1> Failed to insert into database { 
-                   errs.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")
-                 }
-            </h1>
+            <h1> Failed to insert into database </h1>
         }}).into_owned();
 
         return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
@@ -406,7 +348,7 @@ pub async fn register_user(
     
     match tx.commit().await {
         Err(err) =>{
-            tracing::error!("Failed to commit transaction: {}", err);
+            tracing::error!(?err, "Can't register user: Failed to commit transaction");
             let html = render_to_string(move || { view! {
                 <h1> Failed to commit transaction {err.to_string() } </h1>
             }}).into_owned();
@@ -453,9 +395,7 @@ pub async fn register_user_ui() -> Html<String> {
 }
 
 #[tracing::instrument(skip(auth))]
-pub async fn logout_user(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
-) -> Response<Body> {
+pub async fn logout_user(auth: Auth) -> Response<Body> {
     auth.logout_user();
     Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap()
 }
@@ -468,7 +408,7 @@ pub struct LoginRequest {
 
 #[tracing::instrument(skip(auth, pool, password))]
 pub async fn login_user(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Form(LoginRequest {
         username,
@@ -476,9 +416,9 @@ pub async fn login_user(
     }): Form<LoginRequest>,
 ) -> Response<Body> {
     // get user
-    let user = match User::get_from_username(username, &pool).await {
-        Some(user) => user,
-        None => {
+    let user = match User::get_from_username(&username, &pool).await {
+        Ok(user) => user,
+        Err(_err) => {
             let html = render_to_string(|| { view! {
                 <h1> User does not exist </h1>
             }}).into_owned();
@@ -490,7 +430,7 @@ pub async fn login_user(
     let hasher = Argon2::default();
     let hash = PasswordHash::new(&user.password).unwrap();
     if let Err(err) = hasher.verify_password(password.expose_secret().as_bytes(), &hash) {
-        tracing::error!("Failed to verify password: {}", err);
+        tracing::error!(?err, "Can't login: Failed to verify password");
         let html = render_to_string(move || {
             view! {
                 <h1> Failed to verify password {err.to_string() } </h1>
@@ -505,7 +445,7 @@ pub async fn login_user(
 
 #[tracing::instrument(skip(auth))]
 pub async fn login_user_ui(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
+    auth: Auth,
 ) -> Response<Body> {
     if auth.current_user.is_some() {
         return Response::builder().status(StatusCode::FOUND).header("Location", "/dashboard").body(Body::empty()).unwrap();

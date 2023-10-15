@@ -44,6 +44,8 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .merge(auth_router)
         .merge(project_router)
         .layer(http_trace)
+        // TODO: rethink if we need this here. since it makes all routes under this query the
+        // session even if they don't need it
         .layer(
             AuthSessionLayer::<User, Uuid, SessionPgPool, PgPool>::new(Some(pool.clone()))
                 .with_config(auth_config),
@@ -67,7 +69,6 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .map_err(|err| format!("failed to start server: {}", err))
 }
 
-// TODO: use db
 pub async fn fallback(
     State(AppState {
         pool,
@@ -90,7 +91,7 @@ pub async fn fallback(
             .unwrap();
     }
 
-    tracing::info!(subdomain);
+    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
 
     match sqlx::query!(
         r#"SELECT docker_ip, port
@@ -108,15 +109,15 @@ pub async fn fallback(
             client.request(req).await.unwrap()
         }
         Ok(None) => {
-            tracing::debug!("route not found uri -> {:#?}", uri);
+            tracing::debug!(?uri, "route not found {}", uri);
 
             Response::builder()
-                .status(StatusCode::BAD_REQUEST)
+                .status(StatusCode::NOT_FOUND)
                 .body(Body::empty())
                 .unwrap()
         }
         Err(err) => {
-            tracing::error!("route not found uri -> {:#?}", err);
+            tracing::error!(?err, "Can't get subdomain: Failed to query database");
 
             Response::builder()
                 .status(StatusCode::BAD_REQUEST)
