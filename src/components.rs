@@ -15,7 +15,7 @@ pub fn base(children: Children) -> impl IntoView{
                 <script> {"
                     document.body.addEventListener('htmx:beforeSwap', function(evt) {{
                       let status = evt.detail.xhr.status;
-                      if (status === 500 || status === 422 || status === 400) {{
+                      if (status === 500 || status === 422 || status === 409 || status === 400) {{
                         evt.detail.shouldSwap = true;
                         evt.detail.isError = false;
                       }}
