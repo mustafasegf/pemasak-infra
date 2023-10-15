@@ -83,8 +83,22 @@ impl Settings {
         format!("{}:{}", self.application.host, self.application.port)
     }
 
+    pub fn proxy_address_string(&self) -> String {
+        format!("{}:{}", self.db_proxy.host, self.db_proxy.port)
+    }
+
     pub fn address(&self) -> io::Result<SocketAddr> {
         self.address_string()
+            .to_socket_addrs()?
+            .min_by_key(|addr| match addr {
+                SocketAddr::V4(_) => self.application.ipv6 as usize,
+                SocketAddr::V6(_) => self.application.ipv6 as usize ^ 1,
+            })
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid address"))
+    }
+
+    pub fn proxy_address(&self) -> io::Result<SocketAddr> {
+        self.proxy_address_string()
             .to_socket_addrs()?
             .min_by_key(|addr| match addr {
                 SocketAddr::V4(_) => self.application.ipv6 as usize,
