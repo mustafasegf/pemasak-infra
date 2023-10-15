@@ -24,7 +24,7 @@ pub struct AppState {
     pub pool: PgPool,
 }
 
-pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
+pub async fn run(listener: TcpListener, proxy_listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
     let http_trace = telemetry::http_trace_layer();
     let pool = state.pool.clone();
 

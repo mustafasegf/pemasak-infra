@@ -73,12 +73,23 @@ async fn main() {
         pool,
     };
 
+    // Application Socket Address
     let addr_string = config.address_string();
 
     let addr = match config.address() {
         Ok(addr) => addr,
         Err(err) => {
-            tracing::error!("Failed to parse address {}: {}", addr_string, err);
+            tracing::error!("Failed to parse application address {}: {}", addr_string, err);
+            process::exit(1);
+        }
+    };
+
+    // L4 Proxy Socket Address
+    let proxy_addr_string = config.proxy_address_string();
+    let proxy_addr = match config.proxy_address() {
+        Ok(proxy_addr) => proxy_addr,
+        Err(err) => {
+            tracing::error!("Failed to parse L4 proxy address {}: {}", proxy_addr_string, err);
             process::exit(1);
         }
     };
@@ -86,12 +97,20 @@ async fn main() {
     let listener = match TcpListener::bind(addr) {
         Ok(listener) => listener,
         Err(err) => {
-            tracing::error!("Failed to bind address {}: {}", addr_string, err);
+            tracing::error!("Failed to bind application address {}: {}", addr_string, err);
             process::exit(1);
         }
     };
 
-    if let Err(err) = startup::run(listener, state, config).await {
+    let proxy_listener = match TcpListener::bind(proxy_addr) {
+        Ok(proxy_listener) => proxy_listener,
+        Err(err) => {
+            tracing::error!("Failed to bind L4 proxy address {}: {}", proxy_addr_string, err);
+            process::exit(1);
+        }
+    };
+
+    if let Err(err) = startup::run(listener, proxy_listener, state, config).await {
         tracing::error!("Failed to start server on address {}: {}", addr_string, err);
         process::exit(1);
     };
