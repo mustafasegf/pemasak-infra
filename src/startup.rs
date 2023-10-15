@@ -44,13 +44,13 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .merge(auth_router)
         .merge(project_router)
         .layer(http_trace)
-        .fallback(fallback)
         .layer(
             AuthSessionLayer::<User, Uuid, SessionPgPool, PgPool>::new(Some(pool.clone()))
                 .with_config(auth_config),
         )
         .layer(SessionLayer::new(session_store))
         .nest_service("/assets", ServeDir::new("assets"))
+        .fallback(fallback)
         .with_state(state)
         .layer(cors);
 
