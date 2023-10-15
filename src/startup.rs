@@ -7,6 +7,7 @@ use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 use uuid::Uuid;
 
 use std::net::TcpListener;
@@ -49,6 +50,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
                 .with_config(auth_config),
         )
         .layer(SessionLayer::new(session_store))
+        .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state)
         .layer(cors);
 
