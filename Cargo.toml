@@ -31,6 +31,7 @@ data-encoding = "2.4.0"
 dotenvy = "0.15.7"
 flate2 = "1.0.27"
 futures-util = "0.3.28"
+garde = { version = "0.15.0", features = ["regex"] }
 git2 = "0.18.0"
 http-body = "0.4.5"
 hyper = { version = "0.14.27", features = ["server", "full"] }
@@ -40,6 +41,7 @@ leptos = { version = "0.5.0", features = ["ssr", "experimental-islands"] }
 nixpacks = "1.16.0"
 password-hash = "0.5.0"
 rand = "0.8.5"
+regex = "1.10.0"
 secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
