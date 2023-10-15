@@ -8,6 +8,7 @@ use bollard::{
     },
     image::{ListImagesOptions, TagImageOptions},
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
+    service::NetworkContainer,
     Docker,
 };
 use nixpacks::{
@@ -16,7 +17,7 @@ use nixpacks::{
 };
 
 #[tracing::instrument]
-pub async fn build_docker(container_name: &str, container_src: &str) -> Result<String> {
+pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(String, i32)> {
     let image_name = format!("{}:latest", container_name);
     let old_image_name = format!("{}:old", container_name);
     let network_name = format!("{}-network", container_name);
@@ -132,10 +133,13 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<S
             })?;
     }
 
+    // TODO: figure out if we need make this configurable
+    let port = 80;
+
     let config = Config {
         image: Some(image_name.clone()),
         // TDDO: rethink if we need to make this configurable
-        env: Some(vec!["PORT=80".to_string()]),
+        env: Some(vec![format!("PORT={}", port)]),
         ..Default::default()
     };
 
@@ -236,15 +240,25 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<S
             err
         })?;
 
-    let ip = network_inspect
+    let network_container = network_inspect
         .containers
         .unwrap_or_default()
         .get(&res.id)
         .unwrap()
-        .ipv4_address
-        .clone()
-        .unwrap_or_default();
+        .clone();
 
-    tracing::info!(ip);
-    Ok(ip)
+    let NetworkContainer {
+        ipv4_address,
+        ipv6_address,
+        ..
+    } = network_container;
+
+    tracing::info!(ipv4_address = ?ipv4_address, ipv6_address = ?ipv6_address);
+
+    let ip = ipv4_address.or(ipv6_address).ok_or_else(|| {
+        tracing::error!("No ip address found for container {}", container_name);
+        anyhow::anyhow!("No ip address found for container {}", container_name)
+    })?;
+
+    Ok((ip, port))
 }

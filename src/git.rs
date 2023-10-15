@@ -107,7 +107,6 @@ async fn basic_auth<B>(
 }
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
-    // TODO: add auth check
     Router::new()
         .route("/:owner/:repo/git-upload-pack", post(upload_pack_rpc))
         .route("/:owner/:repo/git-receive-pack", post(recieve_pack_rpc))
@@ -465,7 +464,7 @@ pub async fn recieve_pack_rpc(
         };
     };
 
-    let ip = match build_docker(&container_name, &container_src).await {
+    let (ip, port) = match build_docker(&container_name, &container_src).await {
         Ok(ip) => ip,
         Err(err) => {
             println!("error -> {:#?}", err);
@@ -508,9 +507,6 @@ pub async fn recieve_pack_rpc(
                 .unwrap();
         }
     };
-
-    // TODO: get port from docker
-    let port = 80;
 
     // check if projects already have domain
     // TODO: maybe use monad
