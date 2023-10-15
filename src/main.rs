@@ -110,7 +110,7 @@ async fn main() {
         }
     };
 
-    if let Err(err) = startup::run(listener, state, config).await {
+    if let Err(err) = startup::run(listener, proxy_listener, state, config).await {
         tracing::error!("Failed to start server on address {}: {}", addr_string, err);
         process::exit(1);
     };
