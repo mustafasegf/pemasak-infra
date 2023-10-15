@@ -54,6 +54,12 @@
               RUST_LOG=info cargo run  2>&1 | bunyan
             '';
 
+            # nix run .#debug 
+            debug = pkgs.writeShellScriptBin "dev" ''
+              cd "$(git rev-parse --show-toplevel)"
+              RUST_LOG=debug cargo run  2>&1 | bunyan
+            '';
+
             # nix run .#watch 
             watch = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
