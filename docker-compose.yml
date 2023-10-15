@@ -10,11 +10,10 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-      PGPORT: ${DB_PORT}
     networks:
       - pemasak
     ports:
-      - "${DB_PORT}:5433"
+      - "${DB_PORT}:5432"
 
 volumes:
   db-data:
@@ -23,4 +22,3 @@ volumes:
 networks:
   pemasak:
     driver: bridge
-
