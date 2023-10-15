@@ -500,7 +500,6 @@ pub async fn login_user(
     };
 
     auth.login_user(user.id);
-    // TODO: redirect to user dashboard
     Response::builder().status(StatusCode::FOUND).header("HX-Location", "/dashboard").body(Body::empty()).unwrap()
 }
 
