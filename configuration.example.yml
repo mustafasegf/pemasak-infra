@@ -14,3 +14,6 @@ database:
   timeout: 20
 git:
   base: "./src/git-repo"
+db_proxy:
+  host: "localhost"
+  port: 5432
