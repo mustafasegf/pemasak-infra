@@ -39,7 +39,6 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         
 }
 
-// TODO: we need to finalize the working between repo and project
 #[derive(Deserialize)]
 pub struct CreateProjectRequest {
     pub owner: String,
@@ -145,7 +144,6 @@ pub async fn create_project(
     }).collect::<String>();
 
     let salt = SaltString::generate(&mut OsRng);
-    // TODO: check if we can move this into app state
     let hasher = Argon2::default();
     let hash = match hasher.hash_password(token.as_bytes(), &salt) {
         Ok(hash) => hash,

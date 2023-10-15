@@ -11,11 +11,14 @@ use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, StatusCode, Request};
 use leptos::{*, ssr::render_to_string};
+use regex::Regex;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use ulid::Ulid;
 use uuid::Uuid;
+
+use garde::{Validate, Unvalidated};
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -26,6 +29,11 @@ use axum_session_auth::*;
 use async_trait::async_trait;
 
 use crate::{configuration::Settings, startup::AppState, components::Base};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9.]+$").unwrap();
+}
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
@@ -195,40 +203,53 @@ impl SqlUser {
     }
 }
 
+// bro idk why i need 3 borrows
+fn password_check(value: &Secret<String>, _ctx: &&&()) -> garde::Result {
+    if value.expose_secret().len() < 1 {
+        return Err(garde::Error::new("Password cannot be empty"));
+    }
+    Ok(())
+}
 
-#[derive(Deserialize)]
+// why we use this and not the default garde regex match is becasue we need better error code until
+// https://github.com/jprochazk/garde/issues/7 is merged
+fn username_check(value: &String, _ctx: &&&()) -> garde::Result {
+    if !USERNAME_REGEX.is_match(value) {
+        return Err(garde::Error::new("Username can only contain alphanumeric characters and dots"));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize,Validate, Debug)]
 pub struct UserRequest {
+    #[garde(custom(username_check))]
     pub username: String,
+    #[garde(length(min = 1))]
     pub name: String,
+    #[garde(custom(password_check))]
     pub password: Secret<String>,
 }
 
-#[tracing::instrument(skip(auth, pool, password))]
+#[tracing::instrument(skip(auth, pool))]
 pub async fn register_user(
     auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, .. }): State<AppState>,
-    Form(UserRequest {
-        username,
-        name,
-        password,
-    }): Form<UserRequest>,
+    Form(req): Form<Unvalidated<UserRequest>>,
 ) -> Response<Body> {
-    // validate username
-    // TODO: maybe use rust validator crate
-    if username.contains(char::is_whitespace) {
-        let html = render_to_string(move || { view! {
-            <h1> Username cannot contain whitespace </h1>
-        }}).into_owned();
-        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
-    }
+    let UserRequest{ username, name, password } = match req.validate(&()){
+        Ok(valid) => valid.into_inner(),
+        Err(err) => {
+            let html = render_to_string(move || { view! {
+                <p> {err.to_string() } </p>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::BAD_REQUEST).body(Body::from(html)).unwrap();
+        }
+    };
 
     // check if user exists
-    match sqlx::query!(
-        r#"SELECT username FROM users WHERE username = $1"#,
-        username
-    )
-    .fetch_one(&pool)
-    .await
+    match sqlx::query!("SELECT username FROM users WHERE username = $1", username)
+        .fetch_one(&pool)
+        .await
     {
         Err(sqlx::Error::RowNotFound) => {}
         Err(err) => {
