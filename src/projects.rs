@@ -2,11 +2,12 @@ use std::fs::File;
 
 use axum::{
     extract::{State, Path},
-    response::{Html, Response},
+    response::Response,
     routing::{get, delete},
     Form, Router, middleware,
 };
 use axum_extra::routing::RouterExt;
+use garde::{Validate, Unvalidated};
 use serde_json::json;
 use axum_session::SessionPgPool;
 use axum_session_auth::AuthSession;
@@ -39,34 +40,29 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Validate, Debug)]
 pub struct CreateProjectRequest {
+    #[garde(length(min=1))]
     pub owner: String,
+    #[garde(alphanumeric)]
     pub project: String,
 }
 
-#[tracing::instrument(skip(auth, pool, base, domain))]
+#[tracing::instrument(skip(pool, base, domain))]
 pub async fn create_project(
-    auth: AuthSession<User, Uuid, SessionPgPool, PgPool>,
     State(AppState { pool, base, domain, .. }): State<AppState>,
-    Form(CreateProjectRequest {
-        owner,
-        project,
-    }): Form<CreateProjectRequest>,
-) -> Html<String> {
-    //check auth
-    if auth.current_user.is_none() {
-        return Html(render_to_string(|| { view! {
-            <h1> User not authenticated </h1>
-        }}).into_owned());
-    };
+    Form(req): Form<Unvalidated<CreateProjectRequest>>,
+) -> Response<Body> {
 
-    // validate project name
-    if project.contains(char::is_whitespace) {
-        return Html(render_to_string(|| { view! {
-            <h1> Project name cannot contain whitespace </h1>
-        }}).into_owned());
-    }
+    let CreateProjectRequest{ owner, project } = match req.validate(&()){
+        Ok(valid) => valid.into_inner(),
+        Err(err) => {
+            let html = render_to_string(move || { view! {
+                <p> {err.to_string() } </p>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::BAD_REQUEST).body(Body::from(html)).unwrap();
+        }
+    };
 
     let path = match project.ends_with(".git") {
         true => format!("{base}/{owner}/{project}"),
@@ -81,9 +77,10 @@ pub async fn create_project(
         Ok(data) => data.id,
         Err(err) => {
             tracing::error!("Failed to query database: {}", err);
-            return Html(render_to_string(move || { view! {
+            let html = render_to_string(move || { view! {
                 <h1> Failed to query database {err.to_string() } </h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
         }
     };
 
@@ -95,15 +92,18 @@ pub async fn create_project(
     ).fetch_one(&pool).await {
         Err(sqlx::Error::RowNotFound) => {},
         Ok(_) => {
-            return Html(render_to_string(move || { view! {
+            let html = render_to_string(move || { view! {
                 <h1> Project already exist</h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::CONFLICT).body(Body::from(html)).unwrap();
+
         },
         Err(err) => {
             tracing::error!("Failed to query database: {}", err);
-            return Html(render_to_string(move || { view! {
+            let html = render_to_string(move || { view! {
                 <h1> Failed to query database {err.to_string() } </h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
         }
     }
 
@@ -117,9 +117,10 @@ pub async fn create_project(
         Ok(data) => data.id,
         Err(err) => {
             tracing::error!("Failed to insert into database: {}", err);
-            return Html(render_to_string(move || { view! {
+            let html = render_to_string(move || { view! {
                 <h1> Failed to insert into database {err.to_string() } </h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
         }
     };
 
@@ -131,9 +132,10 @@ pub async fn create_project(
 
     if let Err(err) =  git2::Repository::init_bare(path) {
         tracing::error!("Failed to create repo: {}", err);
-        return Html(render_to_string(move || { view! {
-            <h1> Failed to query database {err.to_string() } </h1>
-        }}).into_owned());
+        let html = render_to_string(move || { view! {
+            <h1> Failed to create repo: {err.to_string() } </h1>
+        }}).into_owned();
+        return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
     }
 
     // generate token
@@ -149,9 +151,10 @@ pub async fn create_project(
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!("Failed to hash token: {}", err);
-            return Html(render_to_string(move || { view! {
+            let html = render_to_string(move || { view! {
                 <h1> Failed to generate token {err.to_string() } </h1>
-            }}).into_owned());
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
         }
     };
 
@@ -162,12 +165,13 @@ pub async fn create_project(
         hash.to_string(),
     ).execute(&pool).await {
         tracing::error!("Failed to insert into database: {}", e);
-        return Html(render_to_string(move || { view! {
+        let html = render_to_string(move || { view! {
             <h1> Failed to insert into database {e.to_string() } </h1>
-        }}).into_owned());
+        }}).into_owned();
+        return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
     };
 
-    Html(render_to_string(move || { view! {
+    let html = render_to_string(move || { view! {
         <h1> Project created successfully  </h1>
         <div class="p-4 mb-4 bg-gray-800">
             <pre><code id="code"> 
@@ -206,7 +210,9 @@ pub async fn create_project(
         >
           Copy to clipboard 
         </button>
-    }}).into_owned())
+    }}).into_owned();
+
+    Response::builder().status(StatusCode::OK).body(Body::from(html)).unwrap()
 }
 
 #[derive(sqlx::Type, Eq, PartialEq, Deserialize, Serialize, Debug)]
