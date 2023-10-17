@@ -481,18 +481,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-auth"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe42cdd03ddd244e9e2f5ceb7c6e1d6a123db07cdb8570250392459ef635a016"
-dependencies = [
- "async-trait",
- "axum-core",
- "base64 0.13.1",
- "http",
-]
-
-[[package]]
 name = "axum-core"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2720,7 +2708,6 @@ dependencies = [
  "argon2",
  "async-trait",
  "axum",
- "axum-auth",
  "axum-extra",
  "axum_session",
  "axum_session_auth",
