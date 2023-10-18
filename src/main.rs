@@ -1,5 +1,5 @@
 use hyper::{client::HttpConnector, Body};
-use pemasak_infra::{configuration, startup, telemetry};
+use pemasak_infra::{configuration, startup, telemetry, queue::{BuildQueue, build_queue_handler}};
 use sqlx::postgres::PgPoolOptions;
 use std::{net::TcpListener, process};
 
@@ -64,12 +64,18 @@ async fn main() {
         process::exit(1);
     }
 
+    let (build_queue, build_channel) = BuildQueue::new(5);
+    
+    tokio::spawn(async move {
+        build_queue_handler(build_queue).await;
+    });
 
     let state = startup::AppState {
         base: config.git.base.clone(),
         auth: config.application.auth,
         client: Client::new(),
         domain: config.domain(),
+        build_channel,
         pool,
     };
 
