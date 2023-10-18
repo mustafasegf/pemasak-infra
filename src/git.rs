@@ -384,7 +384,7 @@ fn normal_merge(
 pub async fn recieve_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
     State(AppState {
-        pool, base, domain, build_channel, ..
+        base, build_channel, ..
     }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
@@ -468,7 +468,7 @@ pub async fn recieve_pack_rpc(
     tokio::spawn(async move {
         build_channel.send(
             (container_name, container_src, owner, repo)
-        ).await;
+        ).await
     });
     
     res
