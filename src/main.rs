@@ -64,7 +64,7 @@ async fn main() {
         process::exit(1);
     }
 
-    let (build_queue, build_channel) = BuildQueue::new(5);
+    let (build_queue, build_channel) = BuildQueue::new(2, pool.clone());
     
     tokio::spawn(async move {
         build_queue_handler(build_queue).await;
