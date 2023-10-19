@@ -37,12 +37,12 @@ use crate::{configuration::Settings, startup::AppState};
 use data_encoding::BASE64;
 
 async fn basic_auth<B>(
-    State(AppState { pool, auth, .. }): State<AppState>,
+    State(AppState { pool, git_auth, .. }): State<AppState>,
     headers: HeaderMap,
     request: Request<B>,
     next: Next<B>,
 ) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
-    if !auth {
+    if !git_auth {
         return Ok(next.run(request).await);
     }
 
@@ -394,7 +394,7 @@ pub async fn recieve_pack_rpc(
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
     let container_src = format!("{path}/master");
-    let container_name = format!("{owner}-{}",repo.trim_end_matches(".git"));
+    let container_name = format!("{owner}-{}", repo.trim_end_matches(".git"));
 
     // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {

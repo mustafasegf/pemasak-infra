@@ -3,8 +3,20 @@ application:
   host: "localhost"
   body_limit: "25mib"
   secret: "123"
-  auth: true
   ipv4: false
+
+auth:
+  git: true
+  # in hour
+  lifespan: 168
+  cookie_name: session
+  # in days
+  cookie_max_age: 365
+  cookie_http_only: true
+  cookie_secure: false
+  # in days
+  max_lifespan: 365
+
 database:
   user: "postgres"
   password: "password"
@@ -12,5 +24,6 @@ database:
   port: 5432
   name: "dev"
   timeout: 20
+
 git:
   base: "./src/git-repo"
