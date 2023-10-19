@@ -6,7 +6,7 @@ use axum::{
     routing::get,
     Form, Router, middleware::Next,
 };
-use axum_session::{SessionConfig, SessionStore};
+use axum_session::SessionStore;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, StatusCode, Request};
@@ -60,8 +60,8 @@ pub async fn auth<B>(
     Ok(next.run(request).await)
 }
 
-pub async fn auth_layer(pool: &PgPool) -> (AuthConfig<Uuid>, SessionStore<SessionPgPool>)  {
-    let session_config = SessionConfig::default();
+pub async fn auth_layer(pool: &PgPool, config: &Settings) -> (AuthConfig<Uuid>, SessionStore<SessionPgPool>)  {
+    let session_config = config.session_config();
     let auth_config = AuthConfig::<Uuid>::default();
 
     let session_store =

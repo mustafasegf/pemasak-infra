@@ -65,7 +65,7 @@ async fn main() {
 
     let state = startup::AppState {
         base: config.git.base.clone(),
-        auth: config.application.auth,
+        git_auth: config.auth.git,
         client: Client::new(),
         domain: config.domain(),
         pool,

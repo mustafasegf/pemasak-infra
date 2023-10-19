@@ -19,7 +19,7 @@ use crate::{auth, git, projects, telemetry};
 #[derive(Clone)]
 pub struct AppState {
     pub base: String,
-    pub auth: bool,
+    pub git_auth: bool,
     pub domain: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
@@ -29,7 +29,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
     let http_trace = telemetry::http_trace_layer();
     let pool = state.pool.clone();
 
-    let (auth_config, session_store) = auth::auth_layer(&pool).await;
+    let (auth_config, session_store) = auth::auth_layer(&pool, &config).await;
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
