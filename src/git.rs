@@ -390,7 +390,7 @@ pub async fn recieve_pack_rpc(
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
     let container_src = format!("{path}/master");
-    let container_name = format!("{owner}-{}", repo.trim_end_matches(".git"));
+    let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-") ;
 
     // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {

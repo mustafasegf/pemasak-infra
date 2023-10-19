@@ -419,6 +419,8 @@ pub async fn delete_project_api(
         }
     };
 
+    //TODO: better error log
+
     // check if project exist
     let mut errs = match sqlx::query!(
         r#"SELECT id FROM projects WHERE name = $1 AND owner_id = $2"#,
@@ -449,15 +451,15 @@ pub async fn delete_project_api(
         },
     };
 
-    match errs.as_slice() {
-        [] => {
+    match errs.len() {
+        0 => {
         Response::builder()
             .body(Body::from(
                 json!({"message": "repo deleted successfully"}).to_string(),
             ))
             .unwrap()
         }
-        errs => {
+        _ => {
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(
