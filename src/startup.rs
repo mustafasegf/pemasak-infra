@@ -6,6 +6,7 @@ use axum_session_auth::AuthSessionLayer;
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
+use tokio::sync::mpsc::Sender;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use uuid::Uuid;
@@ -23,6 +24,7 @@ pub struct AppState {
     pub domain: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
+    pub build_channel: Sender<(String, String, String, String)>,
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
