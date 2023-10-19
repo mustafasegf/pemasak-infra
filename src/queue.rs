@@ -20,19 +20,10 @@ use crate::docker::build_docker;
 type ConcurrentMutex<T> = Arc<Mutex<T>>;
 
 #[derive(Error, Debug)]
-pub enum BuildError {
-    #[error("{message:?}")]
-    ProjectNotFound{ message: String },
-    #[error("{message:?}")]
-    BuilderError {
-        message: String,
-        inner_error: Box<dyn std::error::Error>,
-    },
-    #[error("{message:?}")]
-    DatabaseError {
-        message: String,
-        inner_error: Box<dyn std::error::Error>,
-    },
+#[error("{message:?}")]
+pub struct BuildError {
+    message: String,
+    inner_error: Option<Box<dyn std::error::Error>>,
 }
 
 #[derive(Debug)]
@@ -98,7 +89,7 @@ pub async fn trigger_build(
 
     let (ip, port) = match build_docker(&container_name, &container_src).await {
         Ok(result) => Ok(result),
-        Err(err) => Err(BuildError::BuilderError { message: format!("A build error occured while building repository: {repo}"), inner_error: err.into() })
+        Err(err) => Err(BuildError { message: format!("A build error occured while building repository: {repo}"), inner_error: Some(err.into()) })
     }?;
 
     let project = match sqlx::query!(
@@ -116,10 +107,10 @@ pub async fn trigger_build(
     {
         Ok(project) => match project {
             Some(project) => Ok(project),
-            None => Err(BuildError::ProjectNotFound { message: format!("Project not found with owner {owner} and repo {repo}") })
+            None => Err(BuildError { message: format!("Project not found with owner {owner} and repo {repo}"), inner_error: None })
         },
         Err(err) => {
-            Err(BuildError::DatabaseError { message: "Can't get project: Failed to query database".to_string(), inner_error: Box::new(err) })
+            Err(BuildError { message: "Can't get project: Failed to query database".to_string(), inner_error: Some(err.into()) })
         }
     }?;
 
@@ -151,14 +142,14 @@ pub async fn trigger_build(
 
             match subdomain {
                 Ok(_) => Ok(container_name),
-                Err(err) => Err(BuildError::DatabaseError {
-                    inner_error: Box::new(err),
+                Err(err) => Err(BuildError {
+                    inner_error: Some(err.into()),
                     message: "Can't insert domain: Failed to query database".to_string(),
                 }),
             }
         }
         Err(err) => {
-            Err(BuildError::DatabaseError { message: "Can't get subdomain: Failed to query database".to_string(), inner_error: err.into() })
+            Err(BuildError { message: "Can't get subdomain: Failed to query database".to_string(), inner_error: Some(err.into()) })
         }
     }?;
 
@@ -192,15 +183,7 @@ pub async fn process_task_poll(
                 tokio::spawn(async move {
                     match trigger_build(build_item, pool).await {
                         Ok(subdomain) => tracing::info!("Project deployed at {subdomain}"),
-                        Err(err) => match err {
-                            BuildError::BuilderError { message, inner_error } => { 
-                                tracing::error!(?inner_error, message);
-                            },
-                            BuildError::DatabaseError { message, inner_error } => {
-                                tracing::error!(?inner_error, message);
-                            },
-                            BuildError::ProjectNotFound { message } => tracing::error!(message)
-                        },
+                        Err(BuildError { message, inner_error }) => tracing::error!(?inner_error, message),
                     };
 
                     build_count.fetch_add(1, Ordering::SeqCst);
