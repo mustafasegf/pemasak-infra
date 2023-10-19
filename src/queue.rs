@@ -8,6 +8,8 @@ use ulid::Ulid;
 
 use crate::docker::build_docker;
 
+type ConcurrentMutex<T> = Arc<Mutex<T>>;
+
 pub struct BuildItem {
     pub container_name: String,
     pub container_src: String,
@@ -31,8 +33,8 @@ impl Eq for BuildItem {}
 
 pub struct BuildQueue {
     pub build_count: Arc<AtomicUsize>,
-    pub waiting_queue: Arc<Mutex<VecDeque<BuildItem>>>,
-    pub waiting_set: Arc<Mutex<HashSet<BuildItem>>>,
+    pub waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
+    pub waiting_set: ConcurrentMutex<HashSet<BuildItem>>,
     pub receive_channel: Receiver<(String, String, String, String)>,
     pub pg_pool: PgPool,
 }
@@ -51,7 +53,7 @@ impl BuildQueue {
     }
 }
 
-pub async fn trigger_build(build_item: BuildItem, build_count: Arc<AtomicUsize>, pool: PgPool) {
+pub async fn trigger_build(build_item: BuildItem, pool: PgPool) {
     let owner = &build_item.owner;
     let repo = &build_item.repo;
 
@@ -59,7 +61,6 @@ pub async fn trigger_build(build_item: BuildItem, build_count: Arc<AtomicUsize>,
         Ok(ip) => ip,
         Err(err) => {
             println!("error -> {:#?}", err);
-            build_count.fetch_add(1, Ordering::SeqCst);
             return;
         },
     };
@@ -78,11 +79,9 @@ pub async fn trigger_build(build_item: BuildItem, build_count: Arc<AtomicUsize>,
         Ok(Some(project)) => project,
         Err(err) => {
             tracing::error!("failed to query database {}", err);
-            build_count.fetch_add(1, Ordering::SeqCst);
             return;
         },
         Ok(None) => {
-            build_count.fetch_add(1, Ordering::SeqCst);
             return;
         }
     };
@@ -101,7 +100,6 @@ pub async fn trigger_build(build_item: BuildItem, build_count: Arc<AtomicUsize>,
         Ok(Some(subdomain)) => subdomain.name,
         Err(err) => {
             tracing::error!("failed to query database {}", err);
-            build_count.fetch_add(1, Ordering::SeqCst);
             return;
         }
         Ok(None) => {
@@ -122,18 +120,16 @@ pub async fn trigger_build(build_item: BuildItem, build_count: Arc<AtomicUsize>,
             .await
             {
                 tracing::error!("failed to query database {}", err);
-                build_count.fetch_add(1, Ordering::SeqCst);
                 return;
             }
             subdomain
         }
     };
 
-    build_count.fetch_add(1, Ordering::SeqCst);
     println!("container run on {subdomain}");
 }
 
-pub async fn process_task_poll(waiting_queue: Arc<Mutex<VecDeque<BuildItem>>>, waiting_set: Arc<Mutex<HashSet<BuildItem>>>, build_count: Arc<AtomicUsize>, pool: PgPool) {
+pub async fn process_task_poll(waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>, waiting_set: ConcurrentMutex<HashSet<BuildItem>>, build_count: Arc<AtomicUsize>, pool: PgPool) {
     loop {
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
@@ -153,14 +149,15 @@ pub async fn process_task_poll(waiting_queue: Arc<Mutex<VecDeque<BuildItem>>>, w
 
                 build_count.fetch_sub(1, Ordering::SeqCst);
                 tokio::spawn(async move {    
-                    trigger_build(build_item, build_count, pool).await;
+                    trigger_build(build_item, pool).await;
+                    build_count.fetch_add(1, Ordering::SeqCst);
                 });
             }
         }
     }
 }
 
-pub async fn process_task_enqueue(waiting_queue: Arc<Mutex<VecDeque<BuildItem>>>, waiting_set: Arc<Mutex<HashSet<BuildItem>>>, mut receive_channel: Receiver<(String, String, String, String)>) {
+pub async fn process_task_enqueue(waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>, waiting_set: ConcurrentMutex<HashSet<BuildItem>>, mut receive_channel: Receiver<(String, String, String, String)>) {
     while let Some(message) = receive_channel.recv().await {
         let (container_name, container_src, owner, repo) = message;
         let mut waiting_queue = waiting_queue.lock().await;
@@ -169,7 +166,7 @@ pub async fn process_task_enqueue(waiting_queue: Arc<Mutex<VecDeque<BuildItem>>>
         let build_item = BuildItem { container_name, container_src, owner, repo };
 
         if waiting_set.contains(&build_item) {
-            return
+            continue;
         }
 
         waiting_queue.push_back(build_item);
@@ -179,7 +176,7 @@ pub async fn process_task_enqueue(waiting_queue: Arc<Mutex<VecDeque<BuildItem>>>
 pub async fn build_queue_handler(build_queue: BuildQueue) {
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
-        let waiting_set: Arc<Mutex<HashSet<BuildItem>>> = Arc::clone(&build_queue.waiting_set);
+        let waiting_set = Arc::clone(&build_queue.waiting_set);
 
         tokio::spawn(async move {
             process_task_poll(waiting_queue, waiting_set, build_queue.build_count, build_queue.pg_pool).await;
@@ -187,7 +184,7 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
     }
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
-        let waiting_set: Arc<Mutex<HashSet<BuildItem>>> = Arc::clone(&build_queue.waiting_set);
+        let waiting_set = Arc::clone(&build_queue.waiting_set);
         
         tokio::spawn(async move {
             process_task_enqueue(waiting_queue, waiting_set, build_queue.receive_channel).await;
