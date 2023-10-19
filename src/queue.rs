@@ -110,6 +110,7 @@ pub async fn trigger_build(
         }
     };
 
+    // TODO: check why why need this
     let subdomain = match sqlx::query!(
         r#"SELECT domains.name
            FROM domains
@@ -128,7 +129,6 @@ pub async fn trigger_build(
         Ok(None) => {
             // create domain
             // TODO: clean up this mess
-            let subdomain = format!("{owner}-{repo}");
             let id = Uuid::from(Ulid::new());
             if let Err(err) = sqlx::query!(
                 r#"INSERT INTO domains (id, project_id, name, port, docker_ip)
@@ -136,7 +136,7 @@ pub async fn trigger_build(
                 "#,
                 id,
                 project.id,
-                subdomain,
+                container_name,
                 port,
                 ip,
             )
@@ -146,7 +146,7 @@ pub async fn trigger_build(
                 tracing::error!(?err, "Can't insert domain: Failed to query database");
                 return;
             }
-            subdomain
+            container_name
         }
     };
 

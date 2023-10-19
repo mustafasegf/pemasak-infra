@@ -6,15 +6,12 @@ use tower_http::{
     classify::{ServerErrorsAsFailures, SharedClassifier},
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
-use tracing_bunyan_formatter::JsonStorageLayer;
 use tracing_subscriber::{
     filter::LevelFilter,
     fmt::{writer::MakeWriterExt, MakeWriter},
     EnvFilter,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-use tracing_bunyan_formatter::BunyanFormattingLayer;
 
 pub struct LogRecorder {
     stdout: Stdout,
@@ -104,11 +101,23 @@ pub fn init_tracing() {
     if let Some(level) = level {
         tracing_subscriber::registry()
             .with(LevelFilter::TRACE)
-            .with(JsonStorageLayer)
-            .with(BunyanFormattingLayer::new(
-                "pemasak-infra".into(),
-                LogRecorder::new().with_max_level(level),
-            ))
+            .with(tracing_bunyan_formatter::JsonStorageLayer)
+            // TODO: seriously reconsider using bunyan formatter. there is a lot of unnecessary fields in it
+            .with(
+                tracing_bunyan_formatter::BunyanFormattingLayer::new(
+                    "pemasak-infra".into(),
+                    LogRecorder::new().with_max_level(level),
+                )
+                // .skip_fields(["hostname"].into_iter())
+                // .expect("failed to init bunyan formatter"),
+            )
+            // // use tracing_subscriber stdout without bunyan
+            // .with(
+            //     tracing_subscriber::fmt::layer()
+            //         .json()
+            //         .with_writer(LogRecorder::new().with_max_level(level))
+            //         .with_ansi(false),
+            // )
             .init();
     }
 }
