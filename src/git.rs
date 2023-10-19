@@ -384,7 +384,7 @@ fn normal_merge(
 pub async fn recieve_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
     State(AppState {
-        pool, base, domain, ..
+        base, build_channel, ..
     }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
@@ -465,101 +465,12 @@ pub async fn recieve_pack_rpc(
         };
     };
 
-    let ip = match build_docker(&container_name, &container_src).await {
-        Ok(ip) => ip,
-        Err(err) => {
-            println!("error -> {:#?}", err);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .unwrap();
-        }
-    };
-
-    let project = match sqlx::query!(
-        r#"SELECT projects.id
-            FROM projects
-            JOIN project_owners ON projects.owner_id = project_owners.id
-            WHERE project_owners.name = $1
-            AND projects.name = $2"#,
-        owner,
-        repo
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(Some(project)) => project,
-        Err(err) => {
-            tracing::error!("failed to query database {}", err);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .unwrap();
-        }
-        Ok(None) => {
-            return Response::builder()
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .body(Body::from(
-                    json!({
-                        "error": "project not found"
-                    })
-                    .to_string(),
-                ))
-                .unwrap();
-        }
-    };
-
-    // TODO: get port from docker
-    let port = 80;
-
-    // check if projects already have domain
-    // TODO: maybe use monad
-    let subdomain = match sqlx::query!(
-        r#"SELECT domains.name
-           FROM domains
-           WHERE domains.project_id = $1"#,
-        project.id
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(Some(subdomain)) => subdomain.name,
-        Err(err) => {
-            tracing::error!("failed to query database {}", err);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .unwrap();
-        }
-        Ok(None) => {
-            // create domain
-            // TODO: clean up this mess
-            let subdomain = format!("{owner}-{repo}");
-            let id = Uuid::from(Ulid::new());
-            if let Err(err) = sqlx::query!(
-                r#"INSERT INTO domains (id, project_id, name, port, docker_ip)
-                   VALUES ($1, $2, $3, $4, $5)"#,
-                id,
-                project.id,
-                subdomain,
-                port,
-                ip,
-            )
-            .execute(&pool)
-            .await
-            {
-                tracing::error!("failed to query database {}", err);
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap();
-            }
-            subdomain
-        }
-    };
-
-    println!("container run on {subdomain}:{domain}");
-
+    tokio::spawn(async move {
+        build_channel.send(
+            (container_name, container_src, owner, repo)
+        ).await
+    });
+    
     res
 }
 
