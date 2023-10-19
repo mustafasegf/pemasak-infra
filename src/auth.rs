@@ -425,7 +425,6 @@ pub async fn register_user(
 
 #[tracing::instrument]
 pub async fn register_user_ui(State(AppState { build_channel, .. }): State<AppState>,) -> Html<String> {
-    let _ = build_channel.send(("A".to_string(), "B".to_string())).await;
     let html = render_to_string(|| {
         view! {
             <Base>
