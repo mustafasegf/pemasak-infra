@@ -106,6 +106,7 @@ pub async fn fallback(
     .await
     {
         Ok(Some(route)) => {
+            tracing::debug!(ip = route.docker_ip, port = route.port, ?uri, "route found {}", uri);
             let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
             *req.uri_mut() = Uri::try_from(uri).unwrap();
             client.request(req).await.unwrap()
