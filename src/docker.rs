@@ -247,18 +247,27 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
         .unwrap()
         .clone();
 
+    // TODO: this network if for one block. We need to makesure that we can get the right ip
+    // attached to the container
     let NetworkContainer {
         ipv4_address,
         ipv6_address,
         ..
     } = network_container;
 
-    tracing::info!(ipv4_address = ?ipv4_address, ipv6_address = ?ipv6_address);
+    tracing::info!(ipv4_address = ?ipv4_address, ipv6_address = ?ipv6_address, "Container {} ip addresses", container_name);
 
-    let ip = ipv4_address.or(ipv6_address).ok_or_else(|| {
-        tracing::error!("No ip address found for container {}", container_name);
-        anyhow::anyhow!("No ip address found for container {}", container_name)
-    })?;
+    // TODO: make this configurable
+    let ip = ipv6_address
+        .filter(|ip| !ip.is_empty())
+        .or(ipv4_address.filter(|ip| !ip.is_empty()))
+        .and_then(|ip| ip.split('/').next().map(|ip| ip.to_string()))
+        .ok_or_else(|| {
+            tracing::error!("No ip address found for container {}", container_name);
+            anyhow::anyhow!("No ip address found for container {}", container_name)
+        })?;
+
+    tracing::info!(ip = ?ip, port = ?port, "Container {} ip address", container_name);
 
     Ok((ip, port))
 }
