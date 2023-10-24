@@ -1,4 +1,5 @@
 CREATE TYPE role AS ENUM ('admin', 'asdos', 'user');
+CREATE TYPE build_state AS ENUM ('pending', 'building', 'successful', 'failed');
 
 CREATE TABLE users (
   id          UUID          NOT NULL,
@@ -90,4 +91,18 @@ CREATE TABLE sessions (
   id VARCHAR(128) NOT NULL PRIMARY KEY,
   expires INTEGER NULL,
   session TEXT NOT NULL
+);
+
+-- for tracking build state for each project
+CREATE TABLE builds (
+  id UUID NOT NULL PRIMARY KEY,
+  project_id UUID NOT NULL,
+  
+  status build_state NOT NULL DEFAULT 'pending',
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
