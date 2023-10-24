@@ -16,6 +16,12 @@ pub struct Settings {
     pub application: ApplicationSettings,
     pub git: GitSettings,
     pub auth: AuthSettings,
+    pub builder: BuilderSettings,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BuilderSettings {
+    pub max_concurrent_builds: usize
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -77,6 +83,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.cookie_http_only", true)?
         .set_default("auth.cookie_secure", false)?
         .set_default("auth.max_lifespan", 365)?
+        .set_default("builder.max_concurrent_builds", 1)?
         .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
         .build()?
