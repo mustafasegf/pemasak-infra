@@ -27,3 +27,6 @@ database:
 
 git:
   base: "./src/git-repo"
+
+builder:
+  max_concurrent_builds: 2
