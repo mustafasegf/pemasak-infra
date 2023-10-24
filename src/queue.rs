@@ -28,6 +28,7 @@ pub struct BuildError {
 
 #[derive(Debug)]
 pub struct BuildItem {
+    pub build_id: Uuid,
     pub container_name: String,
     pub container_src: String,
     pub owner: String,
@@ -78,6 +79,7 @@ impl BuildQueue {
 
 pub async fn trigger_build(
     BuildItem {
+        build_id,
         owner,
         repo,
         container_src,
@@ -86,12 +88,6 @@ pub async fn trigger_build(
     pool: PgPool,
 ) -> Result<String, BuildError> {
     // TODO: need to emmit error somewhere
-
-    let (ip, port) = match build_docker(&container_name, &container_src).await {
-        Ok(result) => Ok(result),
-        Err(err) => Err(BuildError { message: format!("A build error occured while building repository: {repo}"), inner_error: Some(err.into()) })
-    }?;
-
     let project = match sqlx::query!(
         r#"SELECT projects.id
            FROM projects
@@ -107,11 +103,84 @@ pub async fn trigger_build(
     {
         Ok(project) => match project {
             Some(project) => Ok(project),
-            None => Err(BuildError { message: format!("Project not found with owner {owner} and repo {repo}"), inner_error: None })
+            None => Err(BuildError {
+                message: format!("Project not found with owner {owner} and repo {repo}"),
+                inner_error: None,
+            }),
         },
-        Err(err) => {
-            Err(BuildError { message: "Can't get project: Failed to query database".to_string(), inner_error: Some(err.into()) })
+        Err(err) => Err(BuildError {
+            message: "Can't get project: Failed to query database".to_string(),
+            inner_error: Some(err.into()),
+        }),
+    }?;
+
+    let build_id = match sqlx::query!(
+        r#"SELECT builds.id
+           FROM builds
+           WHERE builds.id = $1
+        "#,
+        build_id,
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(build)) => Ok(build.id),
+        Ok(None) => Err(BuildError {
+            message: format!("Failed to find build with id: {build_id}"),
+            inner_error: None,
+        }),
+        Err(err) => Err(BuildError {
+            message: "Can't create build: Failed to query database".to_string(),
+            inner_error: Some(err.into()),
+        }),
+    }?;
+
+    if let Err(err) = sqlx::query!(
+        "UPDATE builds set status = 'building' where id = $1",
+        build_id
+    )
+    .execute(&pool)
+    .await {
+        return Err(BuildError {
+            message: "Failed to update build status: Failed to query database".to_string(),
+            inner_error: Some(err.into()),
+        })
+    }
+
+    let (ip, port) = match build_docker(&container_name, &container_src).await {
+        Ok(result) => {
+            if let Err(err) = sqlx::query!(
+                "UPDATE builds set status = 'successful' where id = $1",
+                build_id
+            )
+            .execute(&pool)
+            .await {
+                return Err(BuildError {
+                    message: "Failed to update build status: Failed to query database".to_string(),
+                    inner_error: Some(err.into()),
+                })
+            }
+
+            Ok(result)
         }
+        Err(err) => {
+            if let Err(err) = sqlx::query!(
+                "UPDATE builds set status = 'failed' where id = $1",
+                build_id
+            )
+            .execute(&pool)
+            .await {
+                return Err(BuildError {
+                    message: format!("Failed to update build status: Failed to query database: {repo}"),
+                    inner_error: Some(err.into()),
+                })
+            }
+
+            return Err(BuildError {
+                message: format!("A build error occured while building repository: {repo}"),
+                inner_error: Some(err.into()),
+            })
+        },
     }?;
 
     // TODO: check why why need this
@@ -123,7 +192,8 @@ pub async fn trigger_build(
         project.id
     )
     .fetch_optional(&pool)
-    .await {
+    .await
+    {
         Ok(Some(subdomain)) => Ok(subdomain.name),
         Ok(None) => {
             let id = Uuid::from(Ulid::new());
@@ -148,9 +218,10 @@ pub async fn trigger_build(
                 }),
             }
         }
-        Err(err) => {
-            Err(BuildError { message: "Can't get subdomain: Failed to query database".to_string(), inner_error: Some(err.into()) })
-        }
+        Err(err) => Err(BuildError {
+            message: "Can't get subdomain: Failed to query database".to_string(),
+            inner_error: Some(err.into()),
+        }),
     }?;
 
     Ok(subdomain)
@@ -183,7 +254,10 @@ pub async fn process_task_poll(
                 tokio::spawn(async move {
                     match trigger_build(build_item, pool).await {
                         Ok(subdomain) => tracing::info!("Project deployed at {subdomain}"),
-                        Err(BuildError { message, inner_error }) => tracing::error!(?inner_error, message),
+                        Err(BuildError {
+                            message,
+                            inner_error,
+                        }) => tracing::error!(?inner_error, message),
                     };
 
                     build_count.fetch_add(1, Ordering::SeqCst);
@@ -196,6 +270,7 @@ pub async fn process_task_poll(
 pub async fn process_task_enqueue(
     waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
     waiting_set: ConcurrentMutex<HashSet<String>>,
+    pool: PgPool,
     mut receive_channel: Receiver<(String, String, String, String)>,
 ) {
     while let Some(message) = receive_channel.recv().await {
@@ -203,16 +278,61 @@ pub async fn process_task_enqueue(
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 
+        let project = match sqlx::query!(
+            r#"SELECT projects.id
+               FROM projects
+               JOIN project_owners ON projects.owner_id = project_owners.id
+               WHERE project_owners.name = $1
+               AND projects.name = $2
+            "#,
+            owner,
+            repo
+        )
+        .fetch_optional(&pool)
+        .await
+        {
+            Ok(project) => match project {
+                Some(project) => project,
+                None => {
+                    tracing::error!("Project not found with owner {} and repo {}", owner, repo);
+                    continue;
+                }
+            },
+            Err(err) => {
+                tracing::error!(%err, "Can't query project: Failed to query database");
+                continue;
+            }
+        };
+
+        if waiting_set.contains(&container_name) {
+            continue;
+        }
+
+        let build_id = Uuid::from(Ulid::new());
+        match sqlx::query!(
+            r#"INSERT INTO builds (id, project_id)
+               VALUES ($1, $2)
+            "#,
+            build_id,
+            project.id,
+        )
+        .fetch_optional(&pool)
+        .await
+        {
+            Ok(build_details) => build_details,
+            Err(err) => {
+                tracing::error!(%err, "Can't create build: Failed to query database");
+                continue;
+            }
+        };
+
         let build_item = BuildItem {
+            build_id,
             container_name,
             container_src,
             owner,
             repo,
         };
-
-        if waiting_set.contains(&build_item.container_name) {
-            continue;
-        }
 
         waiting_set.insert(build_item.container_name.clone());
         waiting_queue.push_back(build_item);
@@ -223,23 +343,25 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
         let waiting_set = Arc::clone(&build_queue.waiting_set);
+        let pool = build_queue.pg_pool.clone();
 
         tokio::spawn(async move {
-            process_task_poll(
-                waiting_queue,
-                waiting_set,
-                build_queue.build_count,
-                build_queue.pg_pool,
-            )
-            .await;
+            process_task_poll(waiting_queue, waiting_set, build_queue.build_count, pool).await;
         });
     }
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
         let waiting_set = Arc::clone(&build_queue.waiting_set);
+        let pool = build_queue.pg_pool.clone();
 
         tokio::spawn(async move {
-            process_task_enqueue(waiting_queue, waiting_set, build_queue.receive_channel).await;
+            process_task_enqueue(
+                waiting_queue,
+                waiting_set,
+                pool,
+                build_queue.receive_channel,
+            )
+            .await;
         });
     }
 }
