@@ -51,7 +51,7 @@ impl Eq for BuildItem {}
 pub struct BuildQueue {
     pub build_count: Arc<AtomicUsize>,
     pub waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
-    pub waiting_set: ConcurrentMutex<HashSet<BuildItem>>,
+    pub waiting_set: ConcurrentMutex<HashSet<String>>,
     pub receive_channel: Receiver<(String, String, String, String)>,
     pub pg_pool: PgPool,
 }
@@ -158,7 +158,7 @@ pub async fn trigger_build(
 
 pub async fn process_task_poll(
     waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
-    waiting_set: ConcurrentMutex<HashSet<BuildItem>>,
+    waiting_set: ConcurrentMutex<HashSet<String>>,
     build_count: Arc<AtomicUsize>,
     pool: PgPool,
 ) {
@@ -173,7 +173,7 @@ pub async fn process_task_poll(
                 Some(build_item) => build_item,
                 None => continue,
             };
-            waiting_set.remove(&build_item);
+            waiting_set.remove(&build_item.container_name);
 
             {
                 let build_count = Arc::clone(&build_count);
@@ -195,13 +195,13 @@ pub async fn process_task_poll(
 
 pub async fn process_task_enqueue(
     waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
-    waiting_set: ConcurrentMutex<HashSet<BuildItem>>,
+    waiting_set: ConcurrentMutex<HashSet<String>>,
     mut receive_channel: Receiver<(String, String, String, String)>,
 ) {
     while let Some(message) = receive_channel.recv().await {
         let (container_name, container_src, owner, repo) = message;
         let mut waiting_queue = waiting_queue.lock().await;
-        let waiting_set = waiting_set.lock().await;
+        let mut waiting_set = waiting_set.lock().await;
 
         let build_item = BuildItem {
             container_name,
@@ -210,10 +210,11 @@ pub async fn process_task_enqueue(
             repo,
         };
 
-        if waiting_set.contains(&build_item) {
+        if waiting_set.contains(&build_item.container_name) {
             continue;
         }
 
+        waiting_set.insert(build_item.container_name.clone());
         waiting_queue.push_back(build_item);
     }
 }
