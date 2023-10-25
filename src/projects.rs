@@ -195,6 +195,7 @@ pub async fn create_project(
     }
 
     let html = render_to_string(move || { view! {
+        // TODO
         <h1> Project created successfully  </h1>
         <div class="p-4 mb-4 bg-gray-800">
             <pre><code id="code"> 
@@ -267,6 +268,7 @@ pub async fn create_project_ui(
     };
 
     let html = render_to_string(move || view! {
+        // TODO
         <Base>
             <form 
               hx-post="/new" 
