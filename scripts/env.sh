@@ -8,10 +8,10 @@ db_name=$(echo "$json" | jq -r '.database.name')
 
 # Print Docker Compose and SQLx format
 echo "# for docker compose"
-echo "DB_USER=postgres"
+echo "DB_USER=$db_user"
 echo "DB_PASSWORD=$db_password"
-echo "DB_PORT=5432"
-echo "DB_NAME=postgres"
+echo "DB_PORT=$db_port"
+echo "DB_NAME=$db_name"
 
 echo ""
 
