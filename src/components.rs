@@ -10,7 +10,7 @@ pub fn base(children: Children) -> impl IntoView{
                 // TODO: change tailwind to use node
                 <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
                 <script src="https://cdn.tailwindcss.com"></script>
-                <link rel="stylesheet" href="/global.css" />
+                <link rel="stylesheet" href="/assets/global.css" />
             </head>
             <body>
                 // need this in body so body exist
