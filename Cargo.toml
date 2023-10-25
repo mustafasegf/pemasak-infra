@@ -36,7 +36,7 @@ http-body = "0.4.5"
 hyper = { version = "0.14.27", features = ["server", "full"] }
 lazy_static = "1.4.0"
 leptos = { version = "0.5.1", features = ["ssr", "experimental-islands"] }
-nixpacks = "1.17.0"
+nixpacks = { git = "https://github.com/Meta502/nixpacks" }
 password-hash = "0.5.0"
 rand = "0.8.5"
 regex = "1.10.1"
