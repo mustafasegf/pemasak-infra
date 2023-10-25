@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::process::Output;
 
 use anyhow::Result;
 use bollard::{
@@ -17,7 +18,7 @@ use nixpacks::{
 };
 
 #[tracing::instrument]
-pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(String, i32)> {
+pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(String, i32, String)> {
     let image_name = format!("{}:latest", container_name);
     let old_image_name = format!("{}:old", container_name);
     let network_name = format!("{}-network", container_name);
@@ -66,14 +67,22 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
     let build_options = DockerBuilderOptions {
         name: Some(container_name.to_string()),
         quiet: false,
+        verbose: true,
         ..Default::default()
     };
     let envs = vec![];
-    if let Err(err) = create_docker_image(container_src, envs, &plan_options, &build_options).await
-    {
-        tracing::error!("Failed to build docker image: {}", err);
-        return Err(err);
-    };
+
+    let Output {
+        status,
+        stderr,
+        stdout: _,
+    } = create_docker_image(container_src, envs, &plan_options, &build_options).await?;
+
+    let build_log = String::from_utf8(stderr).unwrap();
+
+    if !status.success() {
+        return Err(anyhow::anyhow!(build_log));
+    }
 
     let images = &docker
         .list_images(Some(ListImagesOptions::<String> {
@@ -269,5 +278,5 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
 
     tracing::info!(ip = ?ip, port = ?port, "Container {} ip address", container_name);
 
-    Ok((ip, port))
+    Ok((ip, port, build_log))
 }
