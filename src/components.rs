@@ -10,6 +10,7 @@ pub fn base(children: Children) -> impl IntoView{
                 // TODO: change tailwind to use node
                 <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
                 <script src="https://cdn.tailwindcss.com"></script>
+                <link rel="stylesheet" href="/global.css"> 
             </head>
             <body>
                 // need this in body so body exist
@@ -23,7 +24,7 @@ pub fn base(children: Children) -> impl IntoView{
                     }});
                 "}</script>
                 //TODO: maybe make this optional
-                <div class="px-8 pt-8 pb-5 flex flex-col sm:px-12 md:px-24 lg:px-28 xl:mx-auto xl:max-w-6xl">
+                <div class="flex min-h-screen w-full flex-col items-center justify-center circle-bg p-12 lg:p-32">
                     {children()}
                 </div>
             </body>

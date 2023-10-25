@@ -371,20 +371,33 @@ pub async fn register_user_ui(State(AppState { build_channel, .. }): State<AppSt
         view! {
             <Base>
                 <form 
-                  hx-post="/register" 
-                  hx-trigger="submit"
-                  hx-target="#result"
-                  class="flex flex-col mb-4 gap-1"
-                >
-                    <h1 class="text-2xl font-bold"> Register </h1>
-                    <label for="username">Username</label>
-                    <input type="text" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
-                    <label for="name">Name</label>
-                    <input type="text" name="name" id="name" required class="input input-bordered w-full max-w-xs" />
-                    <label for="password">Password</label>
-                    <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
-                    <button class="mt-4 btn btn-primary w-full max-w-xs">Register</button>
+                    class="flex flex-col p-12 gap-8 w-full md:w-3/4 bg-slate-900/30 rounded-lg backdrop-blur-sm border border-1 border-slate-700"
+                    hx-post="/register" 
+                    hx-trigger="submit"
+                    hx-target="#result"
+                    >
+                    <h1 class="w-full text-center text-3xl font-bold"> Register Account </h1>
+
+                    <div class="flex flex-col gap-4">
+                        <div class="flex flex-col gap-2">
+                            <label for="username">Username</label>
+                            <input type="text" name="username" id="username" required class="input input-bordered w-full" />
+                        </div>
+
+                        <div class="flex flex-col gap-2">
+                            <label for="name">Name</label>
+                            <input type="text" name="name" id="name" required class="input input-bordered w-full" />
+                        </div>
+                        
+                        <div class="flex flex-col gap-2">
+                            <label for="password">Password</label>
+                            <input type="password" name="password" id="password" required class="input input-bordered w-full" />
+                        </div>
+                    </div>
+                    
+                    <button class="mt-4 btn btn-primary w-full">Register</button>
                 </form>
+
                 <div id="result"></div>
             </Base>
         }
@@ -453,16 +466,25 @@ pub async fn login_user_ui(
     let html = render_to_string(|| view! {
         <Base>
             <form 
-              hx-post="/login" 
-              hx-trigger="submit"
-              class="flex flex-col mb-4 gap-1"
-            >
-                <h1 class="text-2xl font-bold"> Login </h1>
-                <label for="username">Username</label>
-                <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
-                <label for="password">Password</label>
-                <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
-                <button class="mt-4 btn btn-primary w-full max-w-xs">Login</button>
+                class="flex flex-col p-12 gap-8 w-full md:w-3/4 bg-slate-900/30 rounded-lg backdrop-blur-sm border border-1 border-slate-700"
+                hx-post="/login" 
+                hx-trigger="submit"
+                >
+                <h1 class="w-full text-center text-3xl font-bold"> Login </h1>
+
+                <div class="flex flex-col gap-4">
+                    <div class="flex flex-col gap-2">
+                    <label for="username">Username</label>
+                    <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                    <label for="password">Password</label>
+                    <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
+                    </div>
+                </div>
+                
+                <button class="mt-4 btn btn-primary w-full">Login</button>
             </form>
         </Base>
     }).into_owned();
