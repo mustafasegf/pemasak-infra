@@ -25,3 +25,5 @@ make sure your user has docker access by running `groups` and check if docker is
 7. run `./scripts/apply.sh`
 8. run `RUST_LOG=info cargo run 2>&1 | bunyan` this will talke a while
 
+### sqlx
+after writing code. Before commit, run `cargo sqlx prepare`. To do that automatically you can enable the git hook by running `ln -sf ../../scripts/pre-commit ./.git/hooks`

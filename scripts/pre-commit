@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+## this will generate sqlx offline queries
+
+cargo sqlx prepare
+git add .sqlx
