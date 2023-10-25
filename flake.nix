@@ -78,6 +78,7 @@
 
           shellHook = ''
             export PATH="$PATH:$GOPATH/bin"
+            ln -sf ../../scripts/pre-commit ./.git/hooks
           '';
         };
       }
