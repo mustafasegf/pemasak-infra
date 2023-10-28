@@ -21,7 +21,8 @@ pub struct Settings {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct BuilderSettings {
-    pub max_concurrent_builds: usize
+    pub max_concurrent_builds: usize,
+    pub build_timeout: usize,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -84,6 +85,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.cookie_secure", false)?
         .set_default("auth.max_lifespan", 365)?
         .set_default("builder.max_concurrent_builds", 1)?
+        .set_default("builder.build_timeout", 120000)?
         .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
         .build()?
