@@ -30,3 +30,4 @@ git:
 
 builder:
   max_concurrent_builds: 2
+  build_timeout: 120000
