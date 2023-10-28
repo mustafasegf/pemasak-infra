@@ -30,4 +30,7 @@ git:
 
 builder:
   max_concurrent_builds: 2
+  # in microseconds (100ms === 1 CPU allocation)
+  cpu_quota_per_builder: 100000
+  # in miliseconds
   build_timeout: 120000

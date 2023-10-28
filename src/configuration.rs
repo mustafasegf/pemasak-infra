@@ -86,6 +86,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.max_lifespan", 365)?
         .set_default("builder.max_concurrent_builds", 1)?
         .set_default("builder.build_timeout", 120000)?
+        .set_default("builder.cpu_quota", 100000)?
         .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
         .build()?
