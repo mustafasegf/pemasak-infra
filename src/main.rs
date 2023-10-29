@@ -1,5 +1,9 @@
 use hyper::{client::HttpConnector, Body};
-use pemasak_infra::{configuration, startup, telemetry, queue::{BuildQueue, build_queue_handler}};
+use pemasak_infra::{
+    configuration,
+    queue::{build_queue_handler, BuildQueue},
+    startup, telemetry,
+};
 use sqlx::postgres::PgPoolOptions;
 use std::{net::TcpListener, process};
 
@@ -63,10 +67,8 @@ async fn main() {
         process::exit(1);
     }
 
-    let (
-        build_queue, build_channel
-    ) = BuildQueue::new(config.builder.max_concurrent_builds, pool.clone());
-    
+    let (build_queue, build_channel) = BuildQueue::new(config.build.max, pool.clone());
+
     tokio::spawn(async move {
         build_queue_handler(build_queue).await;
     });
