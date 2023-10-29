@@ -28,9 +28,9 @@ database:
 git:
   base: "./src/git-repo"
 
-builder:
-  max_concurrent_builds: 2
+build:
+  max: 2
   # in microseconds (100ms === 1 CPU allocation)
-  cpu_quota_per_builder: 100000
+  cpu_ms: 100000
   # in miliseconds
-  build_timeout: 120000
+  timeout: 120000

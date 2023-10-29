@@ -1,6 +1,8 @@
 use std::{
     io,
     net::{SocketAddr, ToSocketAddrs},
+    num::NonZeroUsize,
+    thread::available_parallelism,
 };
 
 use axum_session::SessionConfig;
@@ -16,13 +18,13 @@ pub struct Settings {
     pub application: ApplicationSettings,
     pub git: GitSettings,
     pub auth: AuthSettings,
-    pub builder: BuilderSettings,
+    pub build: BuilderSettings,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct BuilderSettings {
-    pub max_concurrent_builds: usize,
-    pub build_timeout: usize,
+    pub max: usize,
+    pub timeout: usize,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -30,7 +32,6 @@ pub struct ApplicationSettings {
     pub port: u16,
     pub host: String,
     pub body_limit: String,
-    pub secret: String,
     pub ipv6: bool,
 }
 
@@ -84,9 +85,14 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.cookie_http_only", true)?
         .set_default("auth.cookie_secure", false)?
         .set_default("auth.max_lifespan", 365)?
-        .set_default("builder.max_concurrent_builds", 1)?
-        .set_default("builder.build_timeout", 120000)?
-        .set_default("builder.cpu_quota", 100000)?
+        .set_default("build.timeout", 120000)?
+        .set_default(
+            "builder.max",
+            available_parallelism()
+                .unwrap_or(NonZeroUsize::new(2).unwrap())
+                .get() as i32,
+        )?
+        .set_default("builder.cpu_ms", 100000)?
         .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
         .build()?
