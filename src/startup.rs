@@ -106,10 +106,26 @@ pub async fn fallback(
     .await
     {
         Ok(Some(route)) => {
-            tracing::debug!(ip = route.docker_ip, port = route.port, ?uri, "route found {}", uri);
+            tracing::debug!(
+                ip = route.docker_ip,
+                port = route.port,
+                ?uri,
+                "route found {}",
+                uri
+            );
             let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
             *req.uri_mut() = Uri::try_from(uri).unwrap();
-            client.request(req).await.unwrap()
+            match client.request(req).await {
+                Ok(res) => res,
+                Err(err) => {
+                    tracing::error!(?err, "Can't access container: Failed request to container");
+
+                    Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Body::empty())
+                        .unwrap()
+                }
+            }
         }
         Ok(None) => {
             tracing::debug!(?uri, "route not found {}", uri);

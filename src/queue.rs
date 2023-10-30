@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::docker::build_docker;
+use crate::docker::{build_docker, DockerContainer};
 
 type ConcurrentMutex<T> = Arc<Mutex<T>>;
 
@@ -140,27 +140,31 @@ pub async fn trigger_build(
         build_id
     )
     .execute(&pool)
-    .await {
+    .await
+    {
         return Err(BuildError {
             message: "Failed to update build status: Failed to query database".to_string(),
             inner_error: Some(err.into()),
-        })
+        });
     }
 
     // TODO: Differentiate types of errors returned by build_docker (ex: ImageBuildError, NetworkCreateError, ContainerAttachError)
-    let (ip, port, _) = match build_docker(&container_name, &container_src).await {
+    let DockerContainer {
+        ip, port, db_url, ..
+    } = match build_docker(&repo, &container_name, &container_src, pool.clone()).await {
         Ok(result) => {
             if let Err(err) = sqlx::query!(
                 "UPDATE builds SET status = 'successful', log = $1 WHERE id = $2",
-                result.2,
+                result.build_log,
                 build_id
             )
             .execute(&pool)
-            .await {
+            .await
+            {
                 return Err(BuildError {
                     message: "Failed to update build status: Failed to query database".to_string(),
                     inner_error: Some(err.into()),
-                })
+                });
             }
 
             Ok(result)
@@ -172,18 +176,21 @@ pub async fn trigger_build(
                 build_id
             )
             .execute(&pool)
-            .await {
+            .await
+            {
                 return Err(BuildError {
-                    message: format!("Failed to update build status: Failed to query database: {repo}"),
+                    message: format!(
+                        "Failed to update build status: Failed to query database: {repo}"
+                    ),
                     inner_error: Some(err.into()),
-                })
+                });
             }
 
             return Err(BuildError {
                 message: format!("A build error occured while building repository: {repo}"),
                 inner_error: Some(err.into()),
-            })
-        },
+            });
+        }
     }?;
 
     // TODO: check why why need this
@@ -201,14 +208,15 @@ pub async fn trigger_build(
         Ok(None) => {
             let id = Uuid::from(Ulid::new());
             let subdomain = sqlx::query!(
-                r#"INSERT INTO domains (id, project_id, name, port, docker_ip)
-                   VALUES ($1, $2, $3, $4, $5)
+                r#"INSERT INTO domains (id, project_id, name, port, docker_ip, db_url)
+                   VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
                 id,
                 project.id,
                 container_name,
                 port,
                 ip,
+                db_url
             )
             .execute(&pool)
             .await;

@@ -9,19 +9,36 @@ use bollard::{
     },
     image::{ListImagesOptions, TagImageOptions},
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
-    service::NetworkContainer,
+    service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
     Docker,
 };
 use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
+use rand::{Rng, SeedableRng};
+use sqlx::PgPool;
 
-#[tracing::instrument]
-pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(String, i32, String)> {
+const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+pub struct DockerContainer {
+    pub ip: String,
+    pub port: i32,
+    pub build_log: String,
+    pub db_url: String,
+}
+
+#[tracing::instrument(skip(pool))]
+pub async fn build_docker(
+    project_name: &str,
+    container_name: &str,
+    container_src: &str,
+    pool: PgPool,
+) -> Result<DockerContainer> {
     let image_name = format!("{}:latest", container_name);
     let old_image_name = format!("{}:old", container_name);
     let network_name = format!("{}-network", container_name);
+    let db_name = format!("{}-db", container_name);
 
     let docker = Docker::connect_with_local_defaults().map_err(|err| {
         tracing::error!("Failed to connect to docker: {}", err);
@@ -142,13 +159,115 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
             })?;
     }
 
+    // check if database container exists
+    let db_containers = docker
+        .list_containers(Some(ListContainersOptions::<String> {
+            all: true,
+            filters: HashMap::from([("name".to_string(), vec![db_name.to_string()])]),
+            ..Default::default()
+        }))
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to list containers: {}", err);
+            err
+        })?
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    // create database container if it doesn't exist
+    let db_url = match db_containers.is_empty() {
+        true => {
+            let mut rng = rand::rngs::StdRng::from_entropy();
+            let username = (0..10)
+                .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+                .collect::<String>();
+
+            let password = (0..20)
+                .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+                .collect::<String>();
+
+            // create database container
+            let config = Config {
+                image: Some("postgres:16.0-alpine3.18".to_string()),
+                env: Some(vec![
+                    format!("POSTGRES_USER={}", username),
+                    format!("POSTGRES_PASSWORD={}", password),
+                    format!("POSTGRES_DB={}", "postgres"),
+                ]),
+                host_config: Some(HostConfig {
+                    restart_policy: Some(RestartPolicy {
+                        name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+
+            let _res = &docker
+                .create_container(
+                    Some(CreateContainerOptions {
+                        name: db_name.clone(),
+                        platform: None,
+                    }),
+                    config,
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to create container: {}", err);
+                    err
+                })?;
+
+            docker
+                .start_container(&db_name, None::<StartContainerOptions<String>>)
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to start container: {}", err);
+                    err
+                })?;
+
+            format!(
+                "postgresql://{}:{}@{}:{}/{}",
+                username, password, db_name, 5432, "postgres"
+            )
+        }
+        false => {
+            match sqlx::query!(
+                r#"SELECT db_url FROM domains
+                   JOIN projects ON projects.id = domains.project_id
+                   WHERE projects.name = $1
+                "#,
+                project_name
+            )
+            .fetch_one(&pool)
+            .await
+            {
+                Ok(row) => row.db_url.unwrap(),
+                Err(err) => {
+                    tracing::error!("Failed to query database: {}", err);
+                    return anyhow::Result::Err(err.into());
+                }
+            }
+        }
+    };
+
     // TODO: figure out if we need make this configurable
     let port = 80;
 
     let config = Config {
         image: Some(image_name.clone()),
         // TDDO: rethink if we need to make this configurable
-        env: Some(vec![format!("PORT={}", port)]),
+        env: Some(vec![
+            format!("PORT={}", port),
+            format!("DATABASE_URL={}", db_url),
+        ]),
+        host_config: Some(HostConfig {
+            restart_policy: Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -223,9 +342,21 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
             err
         })?;
 
-    tracing::info!("connect network response-> {:#?}", res);
+    // connect db container to network
+    docker
+        .connect_network(
+            &network_name,
+            ConnectNetworkOptions {
+                container: db_name.clone(),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to connect network: {}", err);
+            err
+        })?;
 
-    // TODO: put in port env
     docker
         .start_container(container_name, None::<StartContainerOptions<String>>)
         .await
@@ -278,5 +409,11 @@ pub async fn build_docker(container_name: &str, container_src: &str) -> Result<(
 
     tracing::info!(ip = ?ip, port = ?port, "Container {} ip address", container_name);
 
-    Ok((ip, port, build_log))
+    // Ok((ip, port, build_log))
+    Ok(DockerContainer {
+        ip,
+        port,
+        build_log,
+        db_url,
+    })
 }
