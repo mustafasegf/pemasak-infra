@@ -48,11 +48,12 @@ pub struct DatabaseSettings {
 #[derive(Deserialize, Debug, Clone)]
 pub struct GitSettings {
     pub base: String,
+    pub auth: bool,
 }
 
+// TODO: _ doesn't work for env vars
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthSettings {
-    pub git: bool,
     /// in hours
     pub lifespan: i64,
     pub cookie_name: String,
@@ -77,8 +78,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("database.name", "postgres")?
         .set_default("database.timeout", 20)?
         .set_default("git.base", "./src/git-repo")?
-        .set_default("application.git_auth", true)?
-        .set_default("auth.git", true)?
+        .set_default("git.auth", true)?
         .set_default("auth.lifespan", 24 * 7)?
         .set_default("auth.cookie_name", "session")?
         .set_default("auth.cookie_max_age", 365)?
@@ -93,8 +93,8 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
                 .get() as i32,
         )?
         .set_default("builder.cpu_ms", 100000)?
-        .add_source(config::Environment::default().separator("_"))
         .add_source(config::File::with_name("configuration"))
+        .add_source(config::Environment::default().separator("_"))
         .build()?
         .try_deserialize::<Settings>()
 }

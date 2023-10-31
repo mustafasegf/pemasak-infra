@@ -1,5 +1,6 @@
 use std::io::{self, Empty, Stderr, StderrLock, Stdout, StdoutLock};
 
+use config::Config;
 use tracing::{Level, Metadata};
 
 use tower_http::{
@@ -85,6 +86,13 @@ impl<'a> MakeWriter<'a> for LogRecorder {
     }
 }
 pub fn init_tracing() {
+    let log_dev = Config::builder()
+        .add_source(config::File::with_name("configuration"))
+        .add_source(config::Environment::default().separator("_"))
+        .build()
+        .map(|c| c.get_bool("log.dev").unwrap_or(false))
+        .unwrap_or(false);
+
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "debug".into())
         .max_level_hint();
@@ -99,26 +107,44 @@ pub fn init_tracing() {
     };
 
     if let Some(level) = level {
-        tracing_subscriber::registry()
-            .with(LevelFilter::TRACE)
-            .with(tracing_bunyan_formatter::JsonStorageLayer)
-            // TODO: seriously reconsider using bunyan formatter. there is a lot of unnecessary fields in it
-            .with(
-                tracing_bunyan_formatter::BunyanFormattingLayer::new(
-                    "pemasak-infra".into(),
-                    LogRecorder::new().with_max_level(level),
-                )
-                // .skip_fields(["hostname"].into_iter())
-                // .expect("failed to init bunyan formatter"),
-            )
-            // // use tracing_subscriber stdout without bunyan
-            // .with(
-            //     tracing_subscriber::fmt::layer()
-            //         .json()
-            //         .with_writer(LogRecorder::new().with_max_level(level))
-            //         .with_ansi(false),
-            // )
-            .init();
+        match log_dev {
+            true => {
+                tracing_subscriber::fmt()
+                    .pretty()
+                    .with_max_level(level)
+                    .with_writer(LogRecorder::new())
+                    .init();
+                // tracing_subscriber::registry()
+                //     .with(LevelFilter::TRACE)
+                //     .with(
+                //         tracing_subscriber::fmt::layer()
+                //             .with_writer(LogRecorder::new().with_max_level(level))
+                //             .with_ansi(false),
+                //     )
+                //     .init();
+            }
+            false => {
+                tracing_subscriber::registry()
+                    .with(LevelFilter::TRACE)
+                    // .with(tracing_bunyan_formatter::JsonStorageLayer)
+                    // TODO: seriously reconsider using bunyan formatter. there is a lot of unnecessary fields in it
+                    // .with(
+                    //     tracing_bunyan_formatter::BunyanFormattingLayer::new(
+                    //         "pemasak-infra".into(),
+                    //         LogRecorder::new().with_max_level(level),
+                    //     ), // .skip_fields(["hostname"].into_iter())
+                    //        // .expect("failed to init bunyan formatter"),
+                    // )
+                    // // use tracing_subscriber stdout without bunyan
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .json()
+                            .with_writer(LogRecorder::new().with_max_level(level))
+                            .with_ansi(false),
+                    )
+                    .init();
+            }
+        }
     }
 }
 
