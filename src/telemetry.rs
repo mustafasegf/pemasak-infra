@@ -114,20 +114,11 @@ pub fn init_tracing() {
                     .with_max_level(level)
                     .with_writer(LogRecorder::new())
                     .init();
-                // tracing_subscriber::registry()
-                //     .with(LevelFilter::TRACE)
-                //     .with(
-                //         tracing_subscriber::fmt::layer()
-                //             .with_writer(LogRecorder::new().with_max_level(level))
-                //             .with_ansi(false),
-                //     )
-                //     .init();
             }
             false => {
                 tracing_subscriber::registry()
                     .with(LevelFilter::TRACE)
                     // .with(tracing_bunyan_formatter::JsonStorageLayer)
-                    // TODO: seriously reconsider using bunyan formatter. there is a lot of unnecessary fields in it
                     // .with(
                     //     tracing_bunyan_formatter::BunyanFormattingLayer::new(
                     //         "pemasak-infra".into(),
