@@ -51,19 +51,19 @@
             # nix run .#dev 
             dev = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
-              RUST_LOG=info cargo run  2>&1 | bunyan
+              RUST_LOG=info cargo run
             '';
 
             # nix run .#debug 
             debug = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
-              RUST_LOG=debug cargo run  2>&1 | bunyan
+              RUST_LOG=debug cargo run
             '';
 
             # nix run .#watch 
             watch = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
-              RUST_LOG=info cargo run  2>&1 | bunyan
+              cargo watch -L info -x "run"
             '';
           };
         devShells.default = craneLib.devShell {
@@ -71,7 +71,7 @@
           packages = with pkgs; [
             sqlx-cli
             bacon
-            bunyan-rs
+            cargo-watch
             jq
             yj
           ];
