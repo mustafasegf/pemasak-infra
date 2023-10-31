@@ -6,7 +6,6 @@ application:
   ipv4: false
 
 auth:
-  git: true
   # in hour
   lifespan: 168
   cookie_name: session
@@ -17,6 +16,9 @@ auth:
   # in days
   max_lifespan: 365
 
+log:
+  dev: true
+
 database:
   user: "postgres"
   password: "password"
@@ -26,6 +28,7 @@ database:
   timeout: 20
 
 git:
+  auth: true
   base: "./src/git-repo"
 
 build:
