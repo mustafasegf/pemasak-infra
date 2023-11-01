@@ -1,6 +1,7 @@
-h1:UwiyQ7ebDBhDZgrpR0rVcwHLYIbeK1k2TTO52sxTssc=
+h1:pc5nPIc28pM/PeC4qAj48yhS9kCbDzK3JHV5uuFSbqQ=
 20231007150016_init.sql h1:rqZJtLRKZS11n4sUwPLU5ONxi0yrVSjwI+u2vMD0GZA=
 20231010140913_add_network_info_on_domains.sql h1:+0iRnWybkPR7Ql7MsqOEzYWhIMaRy5aYEeou/rxv6zU=
 20231010141823_change_id_in_domains.sql h1:Tpm0+DQ0C9399qQCnj2Z/WI8i6t/hgoGQG+BhpWTy6Q=
 20231024101047_create_builds_table.sql h1:hz0VouE9yNqN4LYQVYKskVNo40gdsF6biz4GFsuDTYs=
 20231024112528_add_log_field.sql h1:I82tUW4F4JusGy3McDEh0CJs8ZuRgglLh5aB9H434sA=
+20231101071214_create_organization_schema.sql h1:Ebw83RJsTQ7UPzju7E/M38Mbg/PMr90MVrSoB90CPl0=

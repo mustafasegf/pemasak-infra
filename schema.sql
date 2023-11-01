@@ -21,7 +21,10 @@ CREATE TABLE organization (
 
   created_at  TIMESTAMPTZ   NOT NULL default now(),
   updated_at  TIMESTAMPTZ NOT NULL default now(),
-  deleted_at  TIMESTAMPTZ
+  deleted_at  TIMESTAMPTZ,
+
+  PRIMARY KEY (id),
+  CONSTRAINT unique_organization_name UNIQUE (name)
 );
 
 CREATE TABLE project_owners (
