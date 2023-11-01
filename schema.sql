@@ -15,6 +15,15 @@ CREATE TABLE users (
   CONSTRAINT unique_username UNIQUE (username)
 );
 
+CREATE TABLE organization (
+  id          UUID          NOT NULL,
+  name        VARCHAR(64)   NOT NULL,
+
+  created_at  TIMESTAMPTZ   NOT NULL default now(),
+  updated_at  TIMESTAMPTZ NOT NULL default now(),
+  deleted_at  TIMESTAMPTZ
+);
+
 CREATE TABLE project_owners (
   id          UUID          NOT NULL,
   -- TODO: make this unique
@@ -24,6 +33,18 @@ CREATE TABLE project_owners (
   deleted_at  TIMESTAMPTZ,
 
   PRIMARY KEY (id)
+);
+
+CREATE TABLE users_organization (
+  user_id           UUID    NOT NULL,
+  organization_id   UUID    NOT NULL,
+  created_at  TIMESTAMPTZ   NOT NULL default now(),
+  updated_at  TIMESTAMPTZ   NOT NULL default now(),
+  deleted_at  TIMESTAMPTZ,
+
+  PRIMARY KEY (user_id, organization_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (organization_id) REFERENCES organization(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- TODO: make a way to owners must have atleast one user. posibly with trigger or better constraint
@@ -37,6 +58,18 @@ CREATE TABLE users_owners (
 
   PRIMARY KEY (user_id, owner_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (owner_id) REFERENCES project_owners(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE organization_owners (
+  organization_id   UUID    NOT NULL,
+  owner_id          UUID    NOT NULL,
+  created_at  TIMESTAMPTZ   NOT NULL default now(),
+  updated_at  TIMESTAMPTZ   NOT NULL default now(),
+  deleted_at  TIMESTAMPTZ,
+  
+  PRIMARY KEY (organization_id, owner_id),
+  FOREIGN KEY (organization_id) REFERENCES organization(id) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (owner_id) REFERENCES project_owners(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
