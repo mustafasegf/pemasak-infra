@@ -15,6 +15,7 @@ use std::net::TcpListener;
 
 use crate::auth::User;
 use crate::configuration::Settings;
+use crate::queue::BuildQueueItem;
 use crate::{auth, git, projects, telemetry};
 
 #[derive(Clone)]
@@ -24,7 +25,7 @@ pub struct AppState {
     pub domain: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
-    pub build_channel: Sender<(String, String, String, String)>,
+    pub build_channel: Sender<BuildQueueItem>,
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
