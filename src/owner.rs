@@ -44,6 +44,7 @@ pub async fn create_project_owner(
 pub async fn update_project_owner(
     auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
+    Path(project_id): Path<String>,
     Form(req): Form<Unvalidated<OwnerRequest>>
 ) -> Response<Body> {
     Response::builder().status(StatusCode::NO_CONTENT).body(Body::empty()).unwrap()
@@ -51,6 +52,7 @@ pub async fn update_project_owner(
 
 pub fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {    
     Router::new()
-        .route("/owner", post(create_project_owner).put(update_project_owner))
+        .route("/owner", post(create_project_owner))
+        .route("/owner/:project_id", put(update_project_owner))
         .route("/owner/:project_id/:user_id", post(invite_project_member).delete(remove_project_member))
 }
