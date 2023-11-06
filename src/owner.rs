@@ -1,8 +1,8 @@
 use axum::{
     extract::{Path, State},
     response::Response,
-    routing::post,
-    Form, Router,
+    routing::{get, post},
+    Form, Router, middleware,
 };
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
@@ -12,7 +12,7 @@ use serde::Deserialize;
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::{auth::Auth, configuration::Settings, startup::AppState};
+use crate::{auth::{Auth, auth}, components::Base, configuration::Settings, startup::AppState};
 
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]
@@ -370,12 +370,93 @@ pub async fn update_project_owner(
         .unwrap()
 }
 
-pub fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
+pub async fn project_owner_group_details_ui(auth: Auth) -> Response<Body> {
+    let html = render_to_string(|| {
+        view! {
+            <Base>
+                <h1>Project Owner Details</h1>
+            </Base>
+        }
+    })
+    .into_owned();
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/html")
+        .body(Body::from(html))
+        .unwrap()
+}
+
+pub async fn project_owner_group_list_ui(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> Response<Body> {
+    let user_id = auth.id;
+    
+    let owner_groups = match sqlx::query!(
+        r#"SELECT po.id, po.name, po.created_at FROM project_owners AS po
+        RIGHT JOIN users_owners AS uo ON uo.owner_id = po.id AND uo.user_id = $1"#,
+        user_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(owner_groups) => owner_groups,
+        Err(err) => {
+            tracing::error!(
+                ?err,
+                "Can't get existing user_owner: Failed to query database"
+            );
+
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        },
+    };
+
+    let html = render_to_string(|| {
+        view! {
+            <Base>
+                <h1 class="text-2xl font-bold mb-4">Your Owner Groups</h1>
+                <div hx-boost="true" class="flex flex-col gap-4">
+                    {owner_groups.into_iter().map(|record|{ view!{ 
+                        <div class="bg-neutral text-info py-4 px-8 cursor-pointer w-full rounded-lg transition-all outline outline-transparent hover:outline-blue-500">
+                            {
+                                let id = record.id.unwrap().to_string();
+                                let name = record.name.unwrap();
+                                view!{
+                                    <a href="#" class="text-sm">
+                                        <span class="text-sm text-gray-600">{id}</span>
+                                        <h2 class="text-xl font-bold text-white">{name}</h2>
+                                    </a>
+                                }
+                            }
+                        </div>
+                    }}).collect::<Vec<_>>()}
+                </div>
+            </Base>
+        }
+    })
+    .into_owned();
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/html")
+        .body(Body::from(html))
+        .unwrap()
+}
+
+pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route("/owner", post(create_project_owner))
-        .route("/owner/:owner_id", post(update_project_owner))
+        .route(
+            "/owner",
+            get(project_owner_group_list_ui).post(create_project_owner),
+        )
+        .route(
+            "/owner/:owner_id",
+            get(project_owner_group_details_ui).post(update_project_owner),
+        )
         .route(
             "/owner/:owner_id/:user_id",
             post(invite_project_member).delete(remove_project_member),
         )
+        .route_layer(middleware::from_fn(auth))
 }
