@@ -9,7 +9,7 @@ use crate::{configuration::Settings, startup::AppState, auth::Auth};
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]
 pub struct OwnerRequest {
-    #[garde(length(min=64))]
+    #[garde(length(max=128))]
     pub name: String,
 }
 
@@ -53,6 +53,6 @@ pub async fn update_project_owner(
 pub fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {    
     Router::new()
         .route("/owner", post(create_project_owner))
-        .route("/owner/:project_id", put(update_project_owner))
+        .route("/owner/:project_id", post(update_project_owner))
         .route("/owner/:project_id/:user_id", post(invite_project_member).delete(remove_project_member))
 }
