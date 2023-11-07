@@ -6,6 +6,7 @@ pub fn base(children: Children) -> impl IntoView {
         <html data-theme="night">
             <head>
                 <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+                <script src="https://unpkg.com/hyperscript.org@0.9.12"></script>
                 <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
                 // TODO: change tailwind to use node
                 <link href="https://cdn.jsdelivr.net/npm/daisyui@3.8.2/dist/full.css" rel="stylesheet" type="text/css" />
