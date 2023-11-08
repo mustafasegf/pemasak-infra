@@ -25,6 +25,13 @@ pub struct BuildError {
     message: String,
     inner_error: Option<Box<dyn std::error::Error>>,
 }
+#[derive(Debug)]
+pub struct BuildQueueItem {
+    pub container_name: String,
+    pub container_src: String,
+    pub owner: String,
+    pub repo: String
+}
 
 #[derive(Debug)]
 pub struct BuildItem {
@@ -53,7 +60,7 @@ pub struct BuildQueue {
     pub build_count: Arc<AtomicUsize>,
     pub waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
     pub waiting_set: ConcurrentMutex<HashSet<String>>,
-    pub receive_channel: Receiver<(String, String, String, String)>,
+    pub receive_channel: Receiver<BuildQueueItem>,
     pub pg_pool: PgPool,
 }
 
@@ -61,7 +68,7 @@ impl BuildQueue {
     pub fn new(
         build_count: usize,
         pg_pool: PgPool,
-    ) -> (Self, Sender<(String, String, String, String)>) {
+    ) -> (Self, Sender<BuildQueueItem>) {
         let (tx, rx) = mpsc::channel(32);
 
         (
@@ -282,10 +289,10 @@ pub async fn process_task_enqueue(
     waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
     waiting_set: ConcurrentMutex<HashSet<String>>,
     pool: PgPool,
-    mut receive_channel: Receiver<(String, String, String, String)>,
+    mut receive_channel: Receiver<BuildQueueItem>,
 ) {
     while let Some(message) = receive_channel.recv().await {
-        let (container_name, container_src, owner, repo) = message;
+        let BuildQueueItem { container_name, container_src, owner, repo } = message;
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 

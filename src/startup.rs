@@ -15,7 +15,8 @@ use std::net::TcpListener;
 
 use crate::auth::User;
 use crate::configuration::Settings;
-use crate::{auth, git, projects, telemetry};
+use crate::queue::BuildQueueItem;
+use crate::{auth, git, projects, telemetry, owner};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -24,7 +25,7 @@ pub struct AppState {
     pub domain: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
-    pub build_channel: Sender<(String, String, String, String)>,
+    pub build_channel: Sender<BuildQueueItem>,
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
@@ -40,11 +41,13 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
     let git_router = git::router(state.clone(), &config);
     let auth_router = auth::router(state.clone(), &config).await;
     let project_router = projects::router(state.clone(), &config).await;
+    let owners_router = owner::router(state.clone(), &config).await;
 
     let app = Router::new()
         .merge(git_router)
         .merge(auth_router)
         .merge(project_router)
+        .merge(owners_router)
         .layer(http_trace)
         // TODO: rethink if we need this here. since it makes all routes under this query the
         // session even if they don't need it
