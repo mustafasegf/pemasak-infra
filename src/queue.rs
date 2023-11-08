@@ -30,7 +30,7 @@ pub struct BuildQueueItem {
     pub container_name: String,
     pub container_src: String,
     pub owner: String,
-    pub repo: String
+    pub repo: String,
 }
 
 #[derive(Debug)]
@@ -65,10 +65,7 @@ pub struct BuildQueue {
 }
 
 impl BuildQueue {
-    pub fn new(
-        build_count: usize,
-        pg_pool: PgPool,
-    ) -> (Self, Sender<BuildQueueItem>) {
+    pub fn new(build_count: usize, pg_pool: PgPool) -> (Self, Sender<BuildQueueItem>) {
         let (tx, rx) = mpsc::channel(32);
 
         (
@@ -292,7 +289,12 @@ pub async fn process_task_enqueue(
     mut receive_channel: Receiver<BuildQueueItem>,
 ) {
     while let Some(message) = receive_channel.recv().await {
-        let BuildQueueItem { container_name, container_src, owner, repo } = message;
+        let BuildQueueItem {
+            container_name,
+            container_src,
+            owner,
+            repo,
+        } = message;
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 

@@ -28,7 +28,7 @@ use serde::Deserialize;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::{configuration::Settings, startup::AppState, queue::BuildQueueItem};
+use crate::{configuration::Settings, queue::BuildQueueItem, startup::AppState};
 
 use data_encoding::BASE64;
 
@@ -380,7 +380,9 @@ fn normal_merge(
 pub async fn recieve_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
     State(AppState {
-        base, build_channel, ..
+        base,
+        build_channel,
+        ..
     }): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
@@ -391,7 +393,7 @@ pub async fn recieve_pack_rpc(
     };
     let res = service_rpc("receive-pack", &path, headers, body).await;
     let container_src = format!("{path}/master");
-    let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-") ;
+    let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
 
     // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {
@@ -462,16 +464,16 @@ pub async fn recieve_pack_rpc(
     };
 
     tokio::spawn(async move {
-        build_channel.send(
-            BuildQueueItem {
+        build_channel
+            .send(BuildQueueItem {
                 container_name,
                 container_src,
                 owner,
                 repo,
-            }
-        ).await
+            })
+            .await
     });
-    
+
     res
 }
 

@@ -2,9 +2,10 @@ use std::str::FromStr;
 
 use axum::{
     extract::{Path, State},
+    middleware,
     response::Response,
     routing::{get, post},
-    Form, Router, middleware,
+    Form, Router,
 };
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
@@ -14,7 +15,12 @@ use serde::Deserialize;
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::{auth::{Auth, auth}, components::Base, configuration::Settings, startup::AppState};
+use crate::{
+    auth::{auth, Auth},
+    components::Base,
+    configuration::Settings,
+    startup::AppState,
+};
 
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]
@@ -25,7 +31,7 @@ pub struct OwnerRequest {
 
 #[derive(Deserialize, Validate, Debug)]
 pub struct UserSuggestionRequest {
-    #[garde(length(min=1))]
+    #[garde(length(min = 1))]
     pub username: String,
 }
 
@@ -177,8 +183,8 @@ pub async fn invite_project_member(
         r#"SELECT id FROM users WHERE username = $1"#,
         invited_username
     )
-        .fetch_optional(&pool)
-        .await
+    .fetch_optional(&pool)
+    .await
     {
         Ok(Some(invited_user)) => invited_user.id,
         Ok(None) => {
@@ -189,19 +195,19 @@ pub async fn invite_project_member(
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(format!("User not found with username {}", invited_username)))
-                .unwrap()
-        },
+                .body(Body::from(format!(
+                    "User not found with username {}",
+                    invited_username
+                )))
+                .unwrap();
+        }
         Err(err) => {
-            tracing::error!(
-                ?err,
-                "Can't get existing user: Failed to query database",
-            );
+            tracing::error!(?err, "Can't get existing user: Failed to query database",);
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())
-                .unwrap()
+                .unwrap();
         }
     };
 
@@ -282,11 +288,20 @@ pub async fn invite_project_member(
     }
 
     if let Err(err) = tx.commit().await {
-        tracing::error!(?err, "Can't create users_owners: Failed to commit transaction");
-        let html = render_to_string(move || { view! {
-            <h1> Failed to commit transaction {err.to_string() } </h1>
-        }}).into_owned();
-        return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
+        tracing::error!(
+            ?err,
+            "Can't create users_owners: Failed to commit transaction"
+        );
+        let html = render_to_string(move || {
+            view! {
+                <h1> Failed to commit transaction {err.to_string() } </h1>
+            }
+        })
+        .into_owned();
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from(html))
+            .unwrap();
     }
 
     Response::builder()
@@ -456,7 +471,7 @@ pub async fn project_owner_suggestions(
                 .header("Content-Type", "text/html")
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from(html))
-                .unwrap()
+                .unwrap();
         }
     };
 
@@ -464,12 +479,15 @@ pub async fn project_owner_suggestions(
         r#"SELECT username FROM users u WHERE username LIKE $1 LIMIT 5"#,
         format!("{}%", validated.username)
     )
-        .fetch_all(&pool)
-        .await
+    .fetch_all(&pool)
+    .await
     {
         Ok(suggestions) => suggestions,
         Err(err) => {
-            tracing::error!(?err, "Failed to fetch user suggestions: failed to query database");
+            tracing::error!(
+                ?err,
+                "Failed to fetch user suggestions: failed to query database"
+            );
 
             let html = render_to_string(|| {
                 view! {
@@ -482,7 +500,7 @@ pub async fn project_owner_suggestions(
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from(html))
                 .unwrap();
-        },
+        }
     };
 
     let html = render_to_string(move || {
@@ -516,7 +534,7 @@ pub async fn project_owner_suggestions(
 }
 
 pub async fn project_owner_invite_member_ui(
-    auth: Auth, 
+    auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Path(owner_id): Path<String>,
 ) -> Response<Body> {
@@ -524,8 +542,12 @@ pub async fn project_owner_invite_member_ui(
     let owner_id = match Uuid::parse_str(&owner_id) {
         Ok(owner_id) => owner_id,
         Err(err) => {
-            tracing::error!(?err, "Failed to fetch project owner: owner with id {} is not found (Invalid UUID)", owner_id);
-        
+            tracing::error!(
+                ?err,
+                "Failed to fetch project owner: owner with id {} is not found (Invalid UUID)",
+                owner_id
+            );
+
             let html = render_to_string(|| {
                 view! {
                     <div>
@@ -536,7 +558,8 @@ pub async fn project_owner_invite_member_ui(
                         </a>
                     </div>
                 }
-            }).into_owned();
+            })
+            .into_owned();
 
             return Response::builder()
                 .header("Content-Type", "text/html")
@@ -552,13 +575,17 @@ pub async fn project_owner_invite_member_ui(
         owner_id,
         auth_id,
     )
-        .fetch_optional(&pool)
-        .await
+    .fetch_optional(&pool)
+    .await
     {
         Ok(Some(project_owner)) => project_owner,
         Ok(None) => {
-            tracing::error!("Failed to fetch project owner: owner with id {} and user id {} is not found", owner_id, auth_id);
-        
+            tracing::error!(
+                "Failed to fetch project owner: owner with id {} and user id {} is not found",
+                owner_id,
+                auth_id
+            );
+
             let html = render_to_string(|| {
                 view! {
                     <div>
@@ -566,17 +593,21 @@ pub async fn project_owner_invite_member_ui(
                         <h2>Please ensure that you have permission to access the Owner Group.</h2>
                     </div>
                 }
-            }).into_owned();
+            })
+            .into_owned();
 
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header("Content-Type", "text/html")
                 .body(Body::from(html))
-                .unwrap();        
+                .unwrap();
         }
         Err(err) => {
-            tracing::error!(?err, "Failed to fetch project owner: failed to fetch from database");
-        
+            tracing::error!(
+                ?err,
+                "Failed to fetch project owner: failed to fetch from database"
+            );
+
             let html = render_to_string(|| {
                 view! {
                     <div>
@@ -584,16 +615,17 @@ pub async fn project_owner_invite_member_ui(
                         <h2>Please try again later</h2>
                     </div>
                 }
-            }).into_owned();
+            })
+            .into_owned();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "text/html")
                 .body(Body::from(html))
-                .unwrap();     
+                .unwrap();
         }
     };
-    
+
     let html = render_to_string(move || {
         view! {
             <div class="modal-box">
@@ -647,11 +679,19 @@ pub async fn project_owner_invite_member_ui(
         .unwrap()
 }
 
-pub async fn project_owner_group_details_ui(auth: Auth, State(AppState { pool, .. }): State<AppState>, Path(owner_id): Path<String>) -> Response<Body> {
+pub async fn project_owner_group_details_ui(
+    auth: Auth,
+    State(AppState { pool, .. }): State<AppState>,
+    Path(owner_id): Path<String>,
+) -> Response<Body> {
     let parsed_id = match Uuid::parse_str(&owner_id) {
         Ok(parsed_id) => parsed_id,
         Err(err) => {
-            tracing::error!(?err, "Failed to fetch project owner: project with id {} is not found (Invalid UUID)", owner_id);
+            tracing::error!(
+                ?err,
+                "Failed to fetch project owner: project with id {} is not found (Invalid UUID)",
+                owner_id
+            );
 
             let html = render_to_string(|| {
                 view! {
@@ -663,7 +703,8 @@ pub async fn project_owner_group_details_ui(auth: Auth, State(AppState { pool, .
                         </a>
                     </Base>
                 }
-            }).into_owned();
+            })
+            .into_owned();
 
             return Response::builder()
                 .header("Content-Type", "text/html")
@@ -672,17 +713,20 @@ pub async fn project_owner_group_details_ui(auth: Auth, State(AppState { pool, .
                 .unwrap();
         }
     };
-    
+
     let owner_group = match sqlx::query!(
         r#"SELECT po.id, po.name, po.created_at FROM project_owners AS po WHERE id = $1"#,
         parsed_id,
     )
-        .fetch_optional(&pool)
-        .await
+    .fetch_optional(&pool)
+    .await
     {
         Ok(Some(owner_group)) => owner_group,
         Ok(None) => {
-            tracing::error!("Failed to fetch project owner: project with id {} is not found", parsed_id);
+            tracing::error!(
+                "Failed to fetch project owner: project with id {} is not found",
+                parsed_id
+            );
 
             let html = render_to_string(|| {
                 view! {
@@ -692,37 +736,44 @@ pub async fn project_owner_group_details_ui(auth: Auth, State(AppState { pool, .
                         <a href="/owner">Go Back To Owner Dashboard</a>
                     </Base>
                 }
-            }).into_owned();
+            })
+            .into_owned();
 
             return Response::builder()
                 .header("Content-Type", "text/html")
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from(html))
                 .unwrap();
-        },
+        }
         Err(err) => {
-            tracing::error!(?err, "Failed to fetch project owner: Failed to query database");
+            tracing::error!(
+                ?err,
+                "Failed to fetch project owner: Failed to query database"
+            );
 
             return Response::builder()
                 .header("Content-Type", "text/html")
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())
                 .unwrap();
-        },
+        }
     };
-    
+
     let group_members = match sqlx::query!(
         r#"SELECT u.id, u.username, u.name FROM users AS u
         LEFT JOIN users_owners as uo ON uo.user_id = u.id AND uo.owner_id = $1
         WHERE u.id = uo.user_id"#,
         owner_group.id,
     )
-        .fetch_all(&pool)
-        .await
+    .fetch_all(&pool)
+    .await
     {
         Ok(group_members) => group_members,
         Err(err) => {
-            tracing::error!(?err, "Failed to query group members: Failed to query database");
+            tracing::error!(
+                ?err,
+                "Failed to query group members: Failed to query database"
+            );
 
             let html = render_to_string(|| {
                 view! {
@@ -731,7 +782,8 @@ pub async fn project_owner_group_details_ui(auth: Auth, State(AppState { pool, .
                         <h2 class="text-base-content">Please try again later.</h2>
                     </Base>
                 }
-            }).into_owned();
+            })
+            .into_owned();
 
             return Response::builder()
                 .header("Content-Type", "text/html")
@@ -808,9 +860,12 @@ pub async fn project_owner_group_details_ui(auth: Auth, State(AppState { pool, .
         .unwrap()
 }
 
-pub async fn project_owner_group_list_ui(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> Response<Body> {
+pub async fn project_owner_group_list_ui(
+    auth: Auth,
+    State(AppState { pool, .. }): State<AppState>,
+) -> Response<Body> {
     let user_id = auth.id;
-    
+
     let owner_groups = match sqlx::query!(
         r#"SELECT po.id, po.name, po.created_at FROM project_owners AS po
         LEFT JOIN users_owners AS uo ON uo.owner_id = po.id
@@ -831,7 +886,7 @@ pub async fn project_owner_group_list_ui(auth: Auth, State(AppState { pool, .. }
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())
                 .unwrap();
-        },
+        }
     };
 
     let html = render_to_string(|| {

@@ -1,10 +1,10 @@
-pub mod git;
-pub mod docker;
-pub mod telemetry;
-pub mod configuration;
-pub mod startup;
 pub mod auth;
-pub mod projects;
 pub mod components;
-pub mod queue;
+pub mod configuration;
+pub mod docker;
+pub mod git;
 pub mod owner;
+pub mod projects;
+pub mod queue;
+pub mod startup;
+pub mod telemetry;
