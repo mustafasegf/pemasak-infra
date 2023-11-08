@@ -16,6 +16,7 @@ axum = { version = "0.6.20", features = [
   "tower-log",
   "form",
   "headers",
+  "ws",
 ] }
 axum-extra = { version = "0.8.0", features = ["typed-routing"] }
 axum_session = "0.6.1"
@@ -28,6 +29,7 @@ clap = "4.4.6"
 config = "0.13.3"
 data-encoding = "2.4.0"
 flate2 = "1.0.28"
+futures = "0.3.29"
 futures-util = "0.3.28"
 garde = { version = "0.15.0", features = ["regex"] }
 git2 = "0.18.1"
