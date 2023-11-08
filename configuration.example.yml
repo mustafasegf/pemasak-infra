@@ -36,4 +36,10 @@ build:
   # in microseconds (100ms === 1 CPU allocation)
   cpu_ms: 100000
   # in miliseconds
-  timeout: 120000
+  build_timeout: 120000
+
+container:
+  cpu_limit: 0.5
+  # amount of swap = memory_swap - memory_limit
+  memory_limit: 256M
+  memory_swap: 320M

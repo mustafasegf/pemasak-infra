@@ -7,3 +7,4 @@ pub mod auth;
 pub mod projects;
 pub mod components;
 pub mod queue;
+pub mod owner;

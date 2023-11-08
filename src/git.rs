@@ -28,7 +28,7 @@ use serde::Deserialize;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::{configuration::Settings, startup::AppState};
+use crate::{configuration::Settings, startup::AppState, queue::BuildQueueItem};
 
 use data_encoding::BASE64;
 
@@ -463,7 +463,12 @@ pub async fn recieve_pack_rpc(
 
     tokio::spawn(async move {
         build_channel.send(
-            (container_name, container_src, owner, repo)
+            BuildQueueItem {
+                container_name,
+                container_src,
+                owner,
+                repo,
+            }
         ).await
     });
     
