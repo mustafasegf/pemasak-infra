@@ -460,8 +460,9 @@ pub async fn login_user_ui(
             >
                 <h1 class="text-2xl font-bold"> Login </h1>
                 <label for="username">Username</label>
-        <label for="password">Password</label>
                 <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+
+                <label for="password">Password</label>
                 <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
                 <button class="mt-4 btn btn-primary w-full max-w-xs">Login</button>
             </form>
