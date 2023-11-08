@@ -4,8 +4,8 @@ use std::process::Output;
 use anyhow::Result;
 use bollard::{
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions,
-        StopContainerOptions, RemoveContainerOptions,
+        Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
+        StartContainerOptions, StopContainerOptions,
     },
     image::{ListImagesOptions, TagImageOptions},
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},

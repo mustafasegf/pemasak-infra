@@ -2,15 +2,16 @@ use std::collections::HashSet;
 
 use axum::{
     extract::State,
+    middleware::Next,
     response::{Html, Response},
     routing::get,
-    Form, Router, middleware::Next,
+    Form, Router,
 };
 use axum_session::SessionStore;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
-use hyper::{Body, StatusCode, Request};
-use leptos::{*, ssr::render_to_string};
+use hyper::{Body, Request, StatusCode};
+use leptos::{ssr::render_to_string, *};
 use regex::Regex;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
@@ -18,17 +19,17 @@ use sqlx::PgPool;
 use ulid::Ulid;
 use uuid::Uuid;
 
-use garde::{Validate, Unvalidated};
+use garde::{Unvalidated, Validate};
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 
-use axum_session_auth::*;
 use async_trait::async_trait;
+use axum_session_auth::*;
 
-use crate::{configuration::Settings, startup::AppState, components::Base};
+use crate::{components::Base, configuration::Settings, startup::AppState};
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -60,17 +61,19 @@ pub async fn auth<B>(
     Ok(next.run(request).await)
 }
 
-pub async fn auth_layer(pool: &PgPool, config: &Settings) -> (AuthConfig<Uuid>, SessionStore<SessionPgPool>)  {
+pub async fn auth_layer(
+    pool: &PgPool,
+    config: &Settings,
+) -> (AuthConfig<Uuid>, SessionStore<SessionPgPool>) {
     let session_config = config.session_config();
     let auth_config = AuthConfig::<Uuid>::default();
 
     let session_store =
-    SessionStore::<SessionPgPool>::new(Some(pool.clone().into()), session_config)
-        .await
-        .unwrap();
+        SessionStore::<SessionPgPool>::new(Some(pool.clone().into()), session_config)
+            .await
+            .unwrap();
     (auth_config, session_store)
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct User {
@@ -82,36 +85,31 @@ pub struct User {
 
 // TODO: do we need this?
 impl User {
-    pub async fn get(id: &Uuid, pool: &PgPool) -> Result<User, sqlx::Error>  {
+    pub async fn get(id: &Uuid, pool: &PgPool) -> Result<User, sqlx::Error> {
         let sqluser = sqlx::query!("SELECT id, username, password FROM users WHERE id = $1", id)
             .fetch_one(pool)
             .await?;
 
-        let sql_user_perms = sqlx::query!(
-            "SELECT token FROM user_permissions WHERE user_id = $1;",
-            id
-        )
-        .fetch_all(pool)
-        .await?;
+        let sql_user_perms =
+            sqlx::query!("SELECT token FROM user_permissions WHERE user_id = $1;", id)
+                .fetch_all(pool)
+                .await?;
 
-        Ok(Self{
+        Ok(Self {
             id: sqluser.id,
             username: sqluser.username,
             password: sqluser.password,
-            permissions: sql_user_perms
-                    .into_iter()
-                    .map(|x| x.token)
-                    .collect()
+            permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
     }
 
     pub async fn get_from_username(username: &str, pool: &PgPool) -> Result<Self, sqlx::Error> {
         let sqluser = sqlx::query!(
-                "SELECT id, username, password FROM users WHERE username = $1",
-                username
-            )
-            .fetch_one(pool)
-            .await?;
+            "SELECT id, username, password FROM users WHERE username = $1",
+            username
+        )
+        .fetch_one(pool)
+        .await?;
 
         let sql_user_perms = sqlx::query!(
             "SELECT token FROM user_permissions WHERE user_id = $1;",
@@ -120,17 +118,12 @@ impl User {
         .fetch_all(pool)
         .await?;
 
-
-        Ok(Self{
+        Ok(Self {
             id: sqluser.id,
             username: sqluser.username,
             password: sqluser.password,
-            permissions: sql_user_perms
-                    .into_iter()
-                    .map(|x| x.token)
-                    .collect()
+            permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
-
     }
 }
 
@@ -139,12 +132,10 @@ impl Authentication<User, Uuid, PgPool> for User {
     async fn load_user(id: Uuid, pool: Option<&PgPool>) -> Result<User, anyhow::Error> {
         let pool = pool.unwrap();
 
-        User::get(&id, pool)
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, "Can't get user: Failed to query database");
-                anyhow::Error::new(err)
-            })
+        User::get(&id, pool).await.map_err(|err| {
+            tracing::error!(?err, "Can't get user: Failed to query database");
+            anyhow::Error::new(err)
+        })
     }
 
     fn is_authenticated(&self) -> bool {
@@ -178,12 +169,14 @@ fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
 // https://github.com/jprochazk/garde/issues/7 is merged
 fn username_check(value: &str, _ctx: &()) -> garde::Result {
     if !USERNAME_REGEX.is_match(value) {
-        return Err(garde::Error::new("Username can only contain alphanumeric characters and dots"));
+        return Err(garde::Error::new(
+            "Username can only contain alphanumeric characters and dots",
+        ));
     }
     Ok(())
 }
 
-#[derive(Deserialize,Validate,Debug)]
+#[derive(Deserialize, Validate, Debug)]
 pub struct UserRequest {
     #[garde(custom(username_check))]
     pub username: String,
@@ -199,13 +192,23 @@ pub async fn register_user(
     State(AppState { pool, .. }): State<AppState>,
     Form(req): Form<Unvalidated<UserRequest>>,
 ) -> Response<Body> {
-    let UserRequest{ username, name, password } = match req.validate(&()){
+    let UserRequest {
+        username,
+        name,
+        password,
+    } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
-            let html = render_to_string(move || { view! {
-                <p> {err.to_string() } </p>
-            }}).into_owned();
-            return Response::builder().status(StatusCode::BAD_REQUEST).body(Body::from(html)).unwrap();
+            let html = render_to_string(move || {
+                view! {
+                    <p> {err.to_string() } </p>
+                }
+            })
+            .into_owned();
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from(html))
+                .unwrap();
         }
     };
 
@@ -217,17 +220,31 @@ pub async fn register_user(
         Ok(None) => {}
         Err(err) => {
             tracing::error!(?err, "Can't get user: Failed to query database");
-            let html = render_to_string(move || { view! {
-                <h1> Failed to query database {err.to_string() } </h1>
-            }}).into_owned();
-            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to query database {err.to_string() } </h1>
+                }
+            })
+            .into_owned();
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
 
         Ok(_) => {
-            let html = render_to_string(|| { view! {
-                <h1> Username already exists </h1>
-            }}).into_owned();
-            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            let html = render_to_string(|| {
+                view! {
+                    <h1> Username already exists </h1>
+                }
+            })
+            .into_owned();
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
     }
 
@@ -242,17 +259,31 @@ pub async fn register_user(
         Ok(None) => {}
         Err(err) => {
             tracing::error!(?err, "Can't get owners: Failed to query database");
-            let html = render_to_string(move || { view! {
-                <h1> Failed to query database {err.to_string() } </h1>
-            }}).into_owned();
-            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to query database {err.to_string() } </h1>
+                }
+            })
+            .into_owned();
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
 
         Ok(_) => {
-            let html = render_to_string(|| { view! {
-                <h1> Username already exists </h1>
-            }}).into_owned();
-            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            let html = render_to_string(|| {
+                view! {
+                    <h1> Username already exists </h1>
+                }
+            })
+            .into_owned();
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
     }
 
@@ -264,11 +295,18 @@ pub async fn register_user(
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!(?err, "Can't register User: Failed to hash password");
-            let html = render_to_string(move || { view! {
-                <h1> Failed to hash password {err.to_string() } </h1>
-            }}).into_owned();
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to hash password {err.to_string() } </h1>
+                }
+            })
+            .into_owned();
 
-            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
     };
 
@@ -276,16 +314,23 @@ pub async fn register_user(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(?err, "Can't insert user: Failed to begin transaction");
-            let html = render_to_string(move || { view! {
-                <h1> Failed to begin transaction {err.to_string() } </h1>
-            }}).into_owned();
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to begin transaction {err.to_string() } </h1>
+                }
+            })
+            .into_owned();
 
-            return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
     };
 
     // TODO: check if user from sso ui
-    
+
     if let Err(err) = sqlx::query!(
         r#"INSERT INTO users (id, username, password, name) VALUES ($1, $2, $3, $4)"#,
         user_id,
@@ -294,79 +339,131 @@ pub async fn register_user(
         name
     )
     .execute(&mut *tx)
-    .await {
+    .await
+    {
         tracing::error!(?err, "Can't insert user: Failed to insert into database");
         if let Err(err) = tx.rollback().await {
             tracing::error!(?err, "Can't insert user: Failed to rollback transaction");
         }
 
-        let html = render_to_string(move || { view! {
-            <h1> Failed to insert into database </h1>
-        }}).into_owned();
-        
-        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+        let html = render_to_string(move || {
+            view! {
+                <h1> Failed to insert into database </h1>
+            }
+        })
+        .into_owned();
+
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "text/html")
+            .body(Body::from(html))
+            .unwrap();
     };
 
     let owner_id = Uuid::from(Ulid::new());
 
-    if let Err(err) =  sqlx::query!(
+    if let Err(err) = sqlx::query!(
         r#"INSERT INTO project_owners (id, name) VALUES ($1, $2)"#,
         owner_id,
         username
     )
     .execute(&mut *tx)
-    .await {
-        tracing::error!(?err, "Can't insert project_owners: Failed to insert into database");
+    .await
+    {
+        tracing::error!(
+            ?err,
+            "Can't insert project_owners: Failed to insert into database"
+        );
         if let Err(err) = tx.rollback().await {
-            tracing::error!(?err, "Can't insert project_owners: Failed to rollback transaction");
+            tracing::error!(
+                ?err,
+                "Can't insert project_owners: Failed to rollback transaction"
+            );
         }
 
-        let html = render_to_string(move || { view! {
-            <h1>Failed to insert into database</h1>
-        }}).into_owned();
-        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+        let html = render_to_string(move || {
+            view! {
+                <h1>Failed to insert into database</h1>
+            }
+        })
+        .into_owned();
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "text/html")
+            .body(Body::from(html))
+            .unwrap();
     };
 
     if let Err(err) = sqlx::query!(
-            r#"INSERT INTO users_owners (user_id, owner_id) VALUES ($1, $2)"#,
-            user_id,
-            owner_id,
-        )
-        .execute(&mut *tx)
-        .await {
-        tracing::error!(?err, "Can't insert users_owners: Failed to insert into database");
+        r#"INSERT INTO users_owners (user_id, owner_id) VALUES ($1, $2)"#,
+        user_id,
+        owner_id,
+    )
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(
+            ?err,
+            "Can't insert users_owners: Failed to insert into database"
+        );
 
         if let Err(err) = tx.rollback().await {
-            tracing::error!(?err, "Can't insert users_owners: Failed to rollback transaction");
+            tracing::error!(
+                ?err,
+                "Can't insert users_owners: Failed to rollback transaction"
+            );
         }
-        let html = render_to_string(move || { view! {
-            <h1> Failed to insert into database </h1>
-        }}).into_owned();
+        let html = render_to_string(move || {
+            view! {
+                <h1> Failed to insert into database </h1>
+            }
+        })
+        .into_owned();
 
-        return Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "text/html")
+            .body(Body::from(html))
+            .unwrap();
     }
-    
+
     match tx.commit().await {
-        Err(err) =>{
+        Err(err) => {
             tracing::error!(?err, "Can't register user: Failed to commit transaction");
-            let html = render_to_string(move || { view! {
-                <h1> Failed to commit transaction {err.to_string() } </h1>
-            }}).into_owned();
-            Response::builder().status(StatusCode::BAD_REQUEST).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
+            let html = render_to_string(move || {
+                view! {
+                    <h1> Failed to commit transaction {err.to_string() } </h1>
+                }
+            })
+            .into_owned();
+            Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap()
         }
         Ok(_) => {
             auth.login_user(user_id);
-            let html = render_to_string(|| { view! {
-                <h1> User created </h1>
-            }}).into_owned();
-            Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").header("HX-Location", "/dashboard").body(Body::from(html)).unwrap()
+            let html = render_to_string(|| {
+                view! {
+                    <h1> User created </h1>
+                }
+            })
+            .into_owned();
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/html")
+                .header("HX-Location", "/dashboard")
+                .body(Body::from(html))
+                .unwrap()
         }
     }
-
 }
 
 #[tracing::instrument]
-pub async fn register_user_ui(State(AppState { build_channel, .. }): State<AppState>,) -> Html<String> {
+pub async fn register_user_ui(
+    State(AppState { build_channel, .. }): State<AppState>,
+) -> Html<String> {
     let html = render_to_string(|| {
         view! {
             <Base>
@@ -397,7 +494,11 @@ pub async fn register_user_ui(State(AppState { build_channel, .. }): State<AppSt
 #[tracing::instrument(skip(auth))]
 pub async fn logout_user(auth: Auth) -> Response<Body> {
     auth.logout_user();
-    Response::builder().status(StatusCode::FOUND).header("Location", "/login").body(Body::empty()).unwrap()
+    Response::builder()
+        .status(StatusCode::FOUND)
+        .header("Location", "/login")
+        .body(Body::empty())
+        .unwrap()
 }
 
 #[derive(Deserialize)]
@@ -410,19 +511,23 @@ pub struct LoginRequest {
 pub async fn login_user(
     auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
-    Form(LoginRequest {
-        username,
-        password,
-    }): Form<LoginRequest>,
+    Form(LoginRequest { username, password }): Form<LoginRequest>,
 ) -> Response<Body> {
     // get user
     let user = match User::get_from_username(&username, &pool).await {
         Ok(user) => user,
         Err(_err) => {
-            let html = render_to_string(|| { view! {
-                <h1> User does not exist </h1>
-            }}).into_owned();
-            return Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap();
+            let html = render_to_string(|| {
+                view! {
+                    <h1> User does not exist </h1>
+                }
+            })
+            .into_owned();
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
         }
     };
 
@@ -435,20 +540,30 @@ pub async fn login_user(
             view! {
                 <h1> Failed to verify password {err.to_string() } </h1>
             }
-        }).into_owned();
-        return Response::builder().status(500).body(Body::from(html)).unwrap();
+        })
+        .into_owned();
+        return Response::builder()
+            .status(500)
+            .body(Body::from(html))
+            .unwrap();
     };
 
     auth.login_user(user.id);
-    Response::builder().status(StatusCode::FOUND).header("HX-Location", "/dashboard").body(Body::empty()).unwrap()
+    Response::builder()
+        .status(StatusCode::FOUND)
+        .header("HX-Location", "/dashboard")
+        .body(Body::empty())
+        .unwrap()
 }
 
 #[tracing::instrument(skip(auth))]
-pub async fn login_user_ui(
-    auth: Auth,
-) -> Response<Body> {
+pub async fn login_user_ui(auth: Auth) -> Response<Body> {
     if auth.current_user.is_some() {
-        return Response::builder().status(StatusCode::FOUND).header("Location", "/dashboard").body(Body::empty()).unwrap();
+        return Response::builder()
+            .status(StatusCode::FOUND)
+            .header("Location", "/dashboard")
+            .body(Body::empty())
+            .unwrap();
     }
     let html = render_to_string(|| view! {
         <Base>
@@ -469,5 +584,9 @@ pub async fn login_user_ui(
             <div id="result"></div>
         </Base>
     }).into_owned();
-    Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/html")
+        .body(Body::from(html))
+        .unwrap()
 }

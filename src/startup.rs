@@ -16,7 +16,7 @@ use std::net::TcpListener;
 use crate::auth::User;
 use crate::configuration::Settings;
 use crate::queue::BuildQueueItem;
-use crate::{auth, git, projects, telemetry, owner};
+use crate::{auth, git, owner, projects, telemetry};
 
 #[derive(Clone)]
 pub struct AppState {
