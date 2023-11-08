@@ -1,14 +1,14 @@
-use std::fs::File;
+use std::{fs::File, collections::HashMap};
 
 use axum::{
     extract::{State, Path},
     response::Response,
-    routing::{get, delete},
+    routing::{get, post},
     Form, Router, middleware,
 };
 use axum_extra::routing::RouterExt;
+use bollard::{Docker, container::{StopContainerOptions, RemoveContainerOptions, StartContainerOptions}, network::InspectNetworkOptions};
 use garde::{Validate, Unvalidated};
-use serde_json::json;
 use hyper::{Body, StatusCode};
 use leptos::{*, ssr::render_to_string};
 use serde::Deserialize;
@@ -32,7 +32,9 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
     Router::new()
         .route("/new", get(create_project_ui).post(create_project))
         .route("/dashboard", get(dashboard_ui).post(create_project))
-        .route_with_tsr("/:owner/:project", delete(delete_project_api))
+        .route_with_tsr("/:owner/:project", get(project_ui))
+        .route_with_tsr("/:owner/:project/delete", post(delete_project))
+        .route_with_tsr("/:owner/:project/volume/delete", post(delete_volume))
         .route_layer(middleware::from_fn(auth))
         
 }
@@ -213,7 +215,8 @@ pub async fn create_project(
                 let text = document.getElementById('code').getInnerHTML().replaceAll('<br>', lb)
                 if ('clipboard' in window.navigator) {{
                     navigator.clipboard.writeText(text)
-                }}"
+                }}
+            "
         >
           Copy to clipboard 
         </button>
@@ -253,6 +256,7 @@ pub async fn create_project_ui(
            AND o.deleted_at is NULL
         "#,
         user.id
+
     ).fetch_all(&pool).await {
         Ok(data) => data,
         Err(err) => {
@@ -337,6 +341,7 @@ pub async fn dashboard_ui(
             <h1 class="text-2xl font-bold">Your Projects</h1>
             <h3 class="text-lg">"login as " {user.username}</h3>
             <div hx-boost="true" class="flex flex-col gap-4">
+
                 {projects.into_iter().map(|record|{ view!{ 
                 <div class="bg-neutral text-info py-4 px-8 w-full">
                     {let name = format!("{}/{}", record.owner, record.project);
@@ -350,122 +355,389 @@ pub async fn dashboard_ui(
     Response::builder().status(StatusCode::OK).header("Content-Type", "text/html").body(Body::from(html)).unwrap()
 }
 
-// pub async fn create_project_api(
-//     Path((owner, repo)): Path<(String, String)>,
-//     State(AppState { pool, base, .. }): State<AppState>,
-// ) -> Response<Body> {
-//     // check if repo exists
-//     let path = match repo.ends_with(".git") {
-//         true => format!("{base}/{owner}/{repo}"),
-//         false => format!("{base}/{owner}/{repo}.git"),
-//     };
-//
-//     // check
-//
-//     if File::open(&path).is_ok() {
-//         return Response::builder()
-//             .status(StatusCode::CONFLICT)
-//             .body(Body::from(json!({"message": "repo exist"}).to_string()))
-//             .unwrap();
-//     };
-//
-//     match git2::Repository::init_bare(&path) {
-//         Ok(_) => Response::builder()
-//             .body(Body::from(
-//                 json!({"message": "repo created successfully"}).to_string(),
-//             ))
-//             .unwrap(),
-//         Err(e) => Response::builder()
-//             .status(StatusCode::INTERNAL_SERVER_ERROR)
-//             .body(Body::from(
-//                 json!({"message": format!("failed to init repo: {}", e)}).to_string(),
-//             ))
-//             .unwrap(),
-//     }
-// }
+#[tracing::instrument(skip(auth, pool))]
+pub async fn project_ui(
+    auth: Auth,
+    State(AppState { pool, .. }): State<AppState>,
+    Path((owner, project)): Path<(String, String)>,
+) -> Response<Body> {
+    let _user = auth.current_user.unwrap();
 
-pub async fn delete_project_api(
+    let delete_path = format!("/{owner}/{project}/delete");
+    let volume_path = format!("/{owner}/{project}/volume/delete");
+
+    // check if project exist
+    let _project_rec = match sqlx::query!(
+        r#"SELECT projects.name AS project, project_owners.name AS owner
+           FROM projects
+           JOIN project_owners ON projects.owner_id = project_owners.id
+           JOIN users_owners ON project_owners.id = users_owners.owner_id
+           AND projects.name = $1
+           AND project_owners.name = $2
+        "#,
+        project,
+        owner,
+    ).fetch_optional(&pool).await {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            let html = render_to_string(move || { view! {
+                <Base>
+                    <h1> Project does not exist </h1>
+                </Base>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::BAD_REQUEST).body(Body::from(html)).unwrap();
+        },
+        Err(err) => {
+            tracing::error!(?err, "Can't get projects: Failed to query database");
+            let html = render_to_string(move || { view! {
+                <h1> "Failed to query database " {err.to_string() } </h1>
+            }}).into_owned();
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from(html)).unwrap();
+
+        }
+    };
+
+    let html = render_to_string(move || { view! {
+        <Base>
+          <h1> {owner}"/"{project} </h1>
+          <button
+            hx-post={delete_path}
+            hx-trigger="click"
+            class="btn btn-error mt-4 w-full max-w-xs"
+          >Delete Project</button>
+
+          <button
+            hx-post={volume_path}
+            hx-trigger="click"
+            class="btn btn-error mt-4 w-full max-w-xs"
+          >Delete Database</button>
+
+          <div id="result"></div>
+
+        </Base>
+    }}).into_owned();
+
+    Response::builder().status(StatusCode::OK).body(Body::from(html)).unwrap()
+}
+
+#[tracing::instrument(skip(pool, base))]
+pub async fn delete_volume(
     Path((owner, project)): Path<(String, String)>,
     State(AppState { pool, base, .. }): State<AppState>,
 ) -> Response<Body> {
+
+    let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-") ;
+    let db_name = format!("{}-db", container_name);
+    let volume_name = format!("{}-volume", container_name);
+
+
+    let docker = match Docker::connect_with_local_defaults() {
+        Ok(docker) => docker,
+        Err(err) => {
+            tracing::error!(?err, "Can't delete volume: Failed to connect to docker");
+            // TODO: better message
+            return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("")).unwrap();
+
+        },
+    };
+
+
+    let turned_on = match docker.inspect_container(&db_name, None).await {
+        Ok(_) => {
+            match docker.stop_container(&db_name, None::<StopContainerOptions>).await {
+                Ok(_) => {
+                    true
+                }
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete volume: Failed to stop db");
+                    false
+                },
+            }
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete volume: db does not exist");
+            false
+        },
+    };
+
+    let status = match docker.inspect_volume(&volume_name).await {
+        Ok(_) => {
+            match docker.remove_volume(&volume_name, None).await {
+                Ok(_) => {
+                    "successfully deleted"
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete volume: Failed to delete volume");
+                    "failed to delete: volume error"
+                },
+            }
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete volume: volume does not exist");
+            "failed to delete: volume does not exist"
+        },
+    };
+
+    if turned_on {
+        match docker.start_container(&db_name, None::<StartContainerOptions<&str>>).await {
+            Ok(_) => {},
+            Err(err) => {
+                tracing::error!(?err, "Can't delete volume: Failed to start db");
+            },
+        }
+    }
+
+    let html = render_to_string(move || { view! {
+        <div>
+            <h1> {status} </h1>
+        </div>
+    }}).into_owned();
+    Response::builder().status(StatusCode::OK).body(Body::from(html)).unwrap()
+}
+
+#[tracing::instrument(skip(pool, base))]
+pub async fn delete_project(
+    Path((owner, project)): Path<(String, String)>,
+    State(AppState { pool, base, .. }): State<AppState>,
+) -> Response<Body> {
+
+    fn to_response(status: HashMap<&'static str, &'static str>) -> Response<Body> {
+        let success = status.iter().all(|(_, v)| *v == "successfully deleted");
+        let el = match success {
+            true => {
+                view! {
+                    <div>
+                        <h1> "successfully deleted repo" </h1>
+                    </div>
+                }
+            }
+            false => {
+               view! {
+                   <div>
+                   <h1> "some action failed" </h1>
+                    {status.into_iter().map(|(k, v)|{ view!{ 
+                        <h1> {k.to_string()} {v.to_string()} </h1>
+                    }}).collect::<Vec<_>>() }
+                   </div>
+                }
+            }
+        };
+
+        let html = render_to_string(move || { view! {
+            {el}
+            <script>
+            r#"
+                setTimeout(function() {
+                    window.location.href = '/dashboard';
+                }, 5000);  // 3000 milliseconds = 3 seconds
+            "#
+            </script>
+        }}).into_owned();
+        Response::builder().status(StatusCode::OK).body(Body::from(html)).unwrap()
+    }
+
     let path = match project.ends_with(".git") {
         true => format!("{base}/{owner}/{project}"),
         false => format!("{base}/{owner}/{project}.git"),
     };
+    //TODO: better error log
+
+    let mut status: HashMap<&'static str, &'static str> = HashMap::new();
 
     // check if owner exist
-    let owner_id = match sqlx::query!(
+    match sqlx::query!(
         r#"SELECT id FROM project_owners WHERE name = $1 AND deleted_at IS NULL"#,
         owner,
     ).fetch_optional(&pool).await {
-        Ok(Some(data)) => data.id,
+        Ok(Some(data)) => {
+            // check if project exist
+            match sqlx::query!(
+                r#"SELECT id FROM projects WHERE name = $1 AND owner_id = $2"#,
+                project,
+                data.id,
+            ).fetch_optional(&pool).await {
+                Ok(Some(_)) => {
+                    match sqlx::query!("DELETE FROM projects WHERE name = $1 AND owner_id = $2", project, data.id)
+                        .execute(&pool)
+                        .await 
+                    {
+                        Ok(_) => {
+                            status.insert("project", "successfully deleted");
+                        },
+                        Err(err) => {
+                            tracing::error!(?err, "Can't delete project: Failed to delete project");
+                            status.insert("project", "failed to delete: database error");
+                        },
+                    }
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to query database");
+                    status.insert("project", "failed to delete: database error");
+                }
+                _ => {
+                    status.insert("project", "failed to delete: project does not exist");
+                }
+            };
+        },
         Ok(None) => {
             tracing::debug!("Can't delete project: Owner does not exist");
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(
-                    json!({"message": "owner does not exist"}).to_string(),
-                ))
-                .unwrap();
         }
         Err(err) => {
             tracing::error!(?err, "Can't get project_owners: Failed to query database");
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(
-                    json!({"message": "failed to query database"}).to_string(),
-                ))
-                .unwrap();
-        }
-    };
-
-    //TODO: better error log
-
-    // check if project exist
-    let mut errs = match sqlx::query!(
-        r#"SELECT id FROM projects WHERE name = $1 AND owner_id = $2"#,
-        project,
-        owner_id,
-    ).fetch_one(&pool).await {
-        Ok(_) => {
-            match sqlx::query!("DELETE FROM projects WHERE name = $1 AND owner_id = $2", project, owner_id)
-                .execute(&pool)
-                .await 
-            {
-                Ok(_) => vec![],
-                Err(err) => vec![anyhow::anyhow!("failed to delete project: {}", err)]
-            }
-        },
-        Err(sqlx::Error::RowNotFound) => vec![],
-        Err(_err) => vec![anyhow::anyhow!("failed to query database")],
-    };
-    
-    // check if repo exists
-    match File::open(&path) {
-        Err(e) => errs.push(anyhow::anyhow!("failed to open repo: {}", e)),
-        Ok(_) => {
-            match std::fs::remove_dir_all(&path) {
-                Ok(_) => {},
-                Err(e) => errs.push(anyhow::anyhow!("failed to delete repo: {}", e)),
-            }
-        },
-    };
-
-    match errs.len() {
-        0 => {
-        Response::builder()
-            .body(Body::from(
-                json!({"message": "repo deleted successfully"}).to_string(),
-            ))
-            .unwrap()
-        }
-        _ => {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(
-                    json!({"message": format!("failed to delete project: {:?}", errs)}).to_string(),
-                ))
-                .unwrap()
         }
     }
+
+
+    // check if repo exists
+    match File::open(&path) {
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete project: Repo does not exist");
+            status.insert("repo", "failed to delete: repo does not exist");
+        },
+        Ok(_) => {
+            match std::fs::remove_dir_all(&path) {
+                Ok(_) => {
+                    status.insert("repo", "successfully deleted");
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to delete repo");
+                    status.insert("repo", "failed to delete: repo error");
+                },
+            }
+
+        },
+    };
+
+    let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-") ;
+    let db_name = format!("{}-db", container_name);
+    let network_name = format!("{}-network", container_name);
+    let volume_name = format!("{}-volume", container_name);
+
+    let docker = match Docker::connect_with_local_defaults() {
+        Err(err) => {
+            tracing::error!(?err, "Can't delete project: Failed to connect to docker");
+            status.insert("container", "failed to delete: docker error");
+            return to_response(status);
+
+        },
+        Ok(docker) => docker,
+    };
+
+    // remove container
+    match docker.inspect_container(&container_name, None).await {
+        Ok(_) => {
+            match docker.stop_container(&container_name, None::<StopContainerOptions>).await {
+                Ok(_) => {
+                    match docker.remove_container(&container_name, None::<RemoveContainerOptions>).await {
+                        Ok(_) => {
+                            status.insert("container", "successfully deleted");
+                        },
+                        Err(err) => {
+                            tracing::error!(?err, "Can't delete project: Failed to delete container");
+                            status.insert("container", "failed to delete: container error");
+                        },
+                    }
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to stop container");
+                    status.insert("container", "failed to delete: container error");
+                }
+            };
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete project: Container does not exist");
+            status.insert("container", "failed to delete: container does not exist");
+        },
+    };
+
+
+    // remove image
+    match docker.inspect_image(&container_name).await {
+        Ok(_) => {
+            match docker.remove_image(&container_name, None, None).await {
+                Ok(_) => {
+                    status.insert("image", "successfully deleted");
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to delete image");
+                    status.insert("image", "failed to delete: image error");
+                },
+            }
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete project: Image does not exist");
+            status.insert("image", "failed to delete: image does not exist");
+        },
+    };
+
+    
+    // remove database
+    match docker.inspect_container(&db_name, None).await {
+        Ok(_) => {
+            match docker.stop_container(&db_name, None::<StopContainerOptions>).await {
+                Ok(_) => {
+                    match docker.remove_container(&db_name, None::<RemoveContainerOptions>).await {
+                        Ok(_) => {
+                            status.insert("db", "successfully deleted");
+                        },
+                        Err(err) => {
+                            tracing::error!(?err, "Can't delete project: Failed to delete db");
+                            status.insert("db", "failed to delete: container error");
+                        },
+                    }
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to stop db");
+                    status.insert("db", "failed to delete: container error");
+                }
+            };
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete project: db does not exist");
+            status.insert("db", "failed to delete: container does not exist");
+        },
+    };
+
+    // delete volume
+    match docker.inspect_volume(&volume_name).await {
+        Ok(_) => {
+            match docker.remove_volume(&volume_name, None).await {
+                Ok(_) => {
+                    status.insert("volume", "successfully deleted");
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to delete volume");
+                    status.insert("volume", "failed to delete: volume error");
+                },
+            }
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete project: volume does not exist");
+            status.insert("volume", "failed to delete: volume does not exist");
+        },
+    };
+
+    // remove network
+    match docker.inspect_network(&network_name, Some(InspectNetworkOptions::<&str>{
+        verbose: true,
+        ..Default::default()
+    })).await {
+        Ok(_) => {
+            match docker.remove_network(&network_name).await {
+                Ok(_) => {
+                    status.insert("network", "successfully deleted");
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't delete project: Failed to delete network");
+                    status.insert("network", "failed to delete: network error");
+                },
+            }
+        },
+        Err(err) => {
+            tracing::debug!(?err, "Can't delete project: network does not exist");
+            status.insert("network", "failed to delete: network does not exist");
+        },
+    };
+
+    to_response(status)
 }

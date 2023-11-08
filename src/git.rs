@@ -76,7 +76,8 @@ async fn basic_auth<B>(
                     FROM project_owners
                     JOIN projects ON project_owners.id = projects.owner_id
                     JOIN api_token ON projects.id = api_token.project_id
-                    WHERE project_owners.name = $1"#,
+                    WHERE project_owners.name = $1
+                "#,
                 owner_name
             )
             .fetch_all(&pool)

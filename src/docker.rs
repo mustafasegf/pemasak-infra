@@ -5,11 +5,12 @@ use anyhow::Result;
 use bollard::{
     container::{
         Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions,
-        StopContainerOptions,
+        StopContainerOptions, RemoveContainerOptions,
     },
     image::{ListImagesOptions, TagImageOptions},
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
+    volume::{CreateVolumeOptions, ListVolumesOptions},
     Docker,
 };
 use nixpacks::{
@@ -39,12 +40,14 @@ pub async fn build_docker(
     let old_image_name = format!("{}:old", container_name);
     let network_name = format!("{}-network", container_name);
     let db_name = format!("{}-db", container_name);
+    let volume_name = format!("{}-volume", container_name);
 
     let docker = Docker::connect_with_local_defaults().map_err(|err| {
         tracing::error!("Failed to connect to docker: {}", err);
         err
     })?;
 
+    // check if image exists
     let images = &docker
         .list_images(Some(ListImagesOptions::<String> {
             all: false,
@@ -57,6 +60,7 @@ pub async fn build_docker(
             err
         })?;
 
+    // remove image if it exists
     if let Some(_image) = images.first() {
         let tag_options = TagImageOptions {
             tag: "old",
@@ -80,6 +84,7 @@ pub async fn build_docker(
             })?;
     };
 
+    // build image
     let plan_options = GeneratePlanOptions::default();
     let build_options = DockerBuilderOptions {
         name: Some(container_name.to_string()),
@@ -101,6 +106,7 @@ pub async fn build_docker(
         return Err(anyhow::anyhow!(build_log));
     }
 
+    // check if image exists
     let images = &docker
         .list_images(Some(ListImagesOptions::<String> {
             all: false,
@@ -115,7 +121,7 @@ pub async fn build_docker(
 
     let _image = images.first().ok_or(anyhow::anyhow!("No image found"))?;
 
-    // remove container if it exists
+    // check if container exists
     let containers = docker
         .list_containers(Some(ListContainersOptions::<String> {
             all: true,
@@ -130,6 +136,7 @@ pub async fn build_docker(
         .into_iter()
         .collect::<Vec<_>>();
 
+    // remove container if it exists
     if !containers.is_empty() {
         docker
             .stop_container(container_name, None::<StopContainerOptions>)
@@ -142,7 +149,7 @@ pub async fn build_docker(
         docker
             .remove_container(
                 containers.first().unwrap().id.as_ref().unwrap(),
-                None::<bollard::container::RemoveContainerOptions>,
+                None::<RemoveContainerOptions>,
             )
             .await
             .map_err(|err| {
@@ -174,6 +181,74 @@ pub async fn build_docker(
         .into_iter()
         .collect::<Vec<_>>();
 
+    let volumes = docker
+        .list_volumes(Some(ListVolumesOptions::<String> {
+            filters: HashMap::from([("name".to_string(), vec![volume_name.clone()])]),
+        }))
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to list containers: {}", err);
+            err
+        })?
+        .volumes
+        .unwrap_or_default();
+
+    // check if network exists
+    let network = docker
+        .list_networks(Some(ListNetworksOptions {
+            filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
+        }))
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to list networks: {}", err);
+            err
+        })?
+        .first()
+        .map(|n| n.to_owned());
+
+    // create network if it doesn't exist
+    let network = match network {
+        Some(n) => {
+            tracing::info!("Existing network id -> {:?}", n.id);
+            n
+        }
+        None => {
+            let options = bollard::network::CreateNetworkOptions {
+                name: network_name.clone(),
+                ..Default::default()
+            };
+            let res = docker.create_network(options).await.map_err(|err| {
+                tracing::error!("Failed to create network: {}", err);
+                err
+            })?;
+            tracing::info!("create network response-> {:#?}", res);
+
+            docker
+                .list_networks(Some(ListNetworksOptions {
+                    filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
+                }))
+                .await?
+                .first()
+                .map(|n| n.to_owned())
+                .ok_or(anyhow::anyhow!("No network found after make one???"))?
+        }
+    };
+
+    // create volume if it doesn't exist
+    if volumes.is_empty() {
+        let res = docker
+            .create_volume(CreateVolumeOptions {
+                name: volume_name.clone(),
+                ..Default::default()
+            })
+            .await
+            .map_err(|err| {
+                tracing::error!("Failed to create volume: {}", err);
+                err
+            })?;
+        tracing::info!("create volume response-> {:#?}", res);
+    }
+
     // create database container if it doesn't exist
     let db_url = match db_containers.is_empty() {
         true => {
@@ -189,6 +264,10 @@ pub async fn build_docker(
             // create database container
             let config = Config {
                 image: Some("postgres:16.0-alpine3.18".to_string()),
+                volumes: Some(HashMap::from([(
+                    format!("{volume_name}:/var/lib/postgresql/data"),
+                    HashMap::new(),
+                )])),
                 env: Some(vec![
                     format!("POSTGRES_USER={}", username),
                     format!("POSTGRES_PASSWORD={}", password),
@@ -219,10 +298,25 @@ pub async fn build_docker(
                 })?;
 
             docker
-                .start_container(&db_name, None::<StartContainerOptions<String>>)
+                .start_container(&db_name, None::<StartContainerOptions<&str>>)
                 .await
                 .map_err(|err| {
                     tracing::error!("Failed to start container: {}", err);
+                    err
+                })?;
+
+            // connect db container to network
+            docker
+                .connect_network(
+                    &network_name,
+                    ConnectNetworkOptions {
+                        container: db_name.clone(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to connect network: {}", err);
                     err
                 })?;
 
@@ -287,67 +381,12 @@ pub async fn build_docker(
 
     tracing::info!("create response-> {:#?}", res);
 
-    // check if network exists
-    let network = docker
-        .list_networks(Some(ListNetworksOptions {
-            filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list networks: {}", err);
-            err
-        })?
-        .first()
-        .map(|n| n.to_owned());
-
-    let network = match network {
-        Some(n) => {
-            tracing::info!("Existing network id -> {:?}", n.id);
-            n
-        }
-        None => {
-            let options = bollard::network::CreateNetworkOptions {
-                name: network_name.clone(),
-                ..Default::default()
-            };
-            let res = docker.create_network(options).await.map_err(|err| {
-                tracing::error!("Failed to create network: {}", err);
-                err
-            })?;
-            tracing::info!("create network response-> {:#?}", res);
-
-            docker
-                .list_networks(Some(ListNetworksOptions {
-                    filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
-                }))
-                .await?
-                .first()
-                .map(|n| n.to_owned())
-                .ok_or(anyhow::anyhow!("No network found after make one???"))?
-        }
-    };
-
     // connect container to network
     docker
         .connect_network(
             &network_name,
             ConnectNetworkOptions {
                 container: container_name.clone(),
-                ..Default::default()
-            },
-        )
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to connect network: {}", err);
-            err
-        })?;
-
-    // connect db container to network
-    docker
-        .connect_network(
-            &network_name,
-            ConnectNetworkOptions {
-                container: db_name.clone(),
                 ..Default::default()
             },
         )
@@ -409,7 +448,6 @@ pub async fn build_docker(
 
     tracing::info!(ip = ?ip, port = ?port, "Container {} ip address", container_name);
 
-    // Ok((ip, port, build_log))
     Ok(DockerContainer {
         ip,
         port,
