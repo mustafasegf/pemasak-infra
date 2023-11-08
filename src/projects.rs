@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, fs::File, net::SocketAddr, ops::Con
 
 use axum::{
     extract::{
-        ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
+        ws::{CloseFrame, Message, WebSocketUpgrade},
         ConnectInfo, Path, State,
     },
     headers, middleware,
@@ -571,10 +571,9 @@ pub async fn project_ui(
         .unwrap()
 }
 
-#[tracing::instrument(skip(pool, base))]
+#[tracing::instrument]
 pub async fn delete_volume(
     Path((owner, project)): Path<(String, String)>,
-    State(AppState { pool, base, .. }): State<AppState>,
 ) -> Response<Body> {
     let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
     let db_name = format!("{}-db", container_name);
@@ -927,7 +926,7 @@ pub async fn web_terminal_ws(
     // State(AppState { pool, base, .. }): State<AppState>,
     ws: WebSocketUpgrade,
     user_agent: Option<TypedHeader<headers::UserAgent>>,
-    // ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
     let user_agent = if let Some(TypedHeader(user_agent)) = user_agent {
         user_agent.to_string()
@@ -935,7 +934,8 @@ pub async fn web_terminal_ws(
         String::from("Unknown browser")
     };
 
-    let who = SocketAddr::from(([127, 0, 0, 1], 0));
+    // let who = SocketAddr::from(([127, 0, 0, 1], 0));
+    let who = addr;
 
     fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
         match msg {
@@ -973,6 +973,7 @@ pub async fn web_terminal_ws(
     tracing::info!(?user_agent, "New websocket connection");
     ws.on_upgrade(move |mut socket| {
         async move {
+            
             //send a ping (unsupported by some browsers) just to kick things off and get a response
             if socket.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
                 println!("Pinged {who}...");

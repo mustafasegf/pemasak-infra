@@ -11,7 +11,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use uuid::Uuid;
 
-use std::net::TcpListener;
+use std::net::{TcpListener, SocketAddr};
 
 use crate::auth::User;
 use crate::configuration::Settings;
@@ -69,7 +69,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
     axum::Server::from_tcp(listener)
         .map_err(|err| format!("Failed to make server from tcp: {}", err))?
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .map_err(|err| format!("failed to start server: {}", err))
 }
