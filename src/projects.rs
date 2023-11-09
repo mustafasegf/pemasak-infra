@@ -1,5 +1,5 @@
-use std::{borrow::Cow, collections::HashMap, fs::File, net::SocketAddr, ops::ControlFlow};
-use tokio::sync::mpsc::{self, Sender};
+use std::{borrow::Cow, collections::HashMap, fs::File, net::SocketAddr, time::Duration};
+use tokio::sync::mpsc;
 
 use axum::{
     extract::{
@@ -924,7 +924,7 @@ pub async fn delete_project(
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WsMessage {
+pub struct WsRequest {
     pub message: String,
     #[serde(rename = "HEADERS")]
     pub headers: Headers,
@@ -945,6 +945,13 @@ pub struct Headers {
     pub hx_current_url: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum WsMessage {
+    Ping,
+    Message(String),
+}
+
+
 #[tracing::instrument]
 pub async fn web_terminal_ws(
     Path((owner, project)): Path<(String, String)>,
@@ -962,13 +969,12 @@ pub async fn web_terminal_ws(
     // let who = SocketAddr::from(([127, 0, 0, 1], 0));
     let who = addr;
 
-    let (tx, mut rx) = mpsc::channel::<String>(2);
+    let (tx, mut rx) = mpsc::channel::<WsMessage>(2);
 
-    tracing::info!(?user_agent, "New websocket connection");
+    tracing::info!(user_agent, "New websocket connection");
 
     ws.on_upgrade(move |mut socket| {
         async move {
-            
             //send a ping (unsupported by some browsers) just to kick things off and get a response
             if socket.send(Message::Ping(vec![])).await.is_ok() {
                 tracing::debug!(?who, "Pinged");
@@ -998,10 +1004,8 @@ pub async fn web_terminal_ws(
 
 
             // By splitting socket we can send and receive at the same time. In this example we will send
-            // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
             let (mut sender, mut receiver) = socket.split();
 
-            // Spawn a task that will push several messages to the client (does not matter what client does)
             let mut send_task = tokio::spawn(async move {
                 let mut i = 0;
                 loop {
@@ -1010,7 +1014,7 @@ pub async fn web_terminal_ws(
                             tracing::error!("Can't receive message from channel");
                             break;
                         },
-                        Some(msg) => {
+                        Some(WsMessage::Message(msg)) => {
                             if sender
                                 .send(Message::Text(format!(r#"<div id="data" hx-swap-oob="beforeend"><p>{msg}</p></div> "#)))
                                 .await
@@ -1018,8 +1022,12 @@ pub async fn web_terminal_ws(
                             {
                                 break;
                             }
-                            // i += 1;
-
+                            i += 1;
+                        }
+                        Some(WsMessage::Ping) => {
+                            if sender.send(Message::Ping(vec![])).await.is_err() {
+                                break;
+                            }
                         }
                     }
                 }
@@ -1039,7 +1047,7 @@ pub async fn web_terminal_ws(
 
             // This second task will receive messages from client and print them on server console
             let mut recv_task = tokio::spawn({
-                // let tx = tx.clone();
+                let tx = tx.clone();
                 async move {
                     let mut cnt = 0;
                     while let Some(Ok(msg)) = receiver.next().await {
@@ -1049,12 +1057,12 @@ pub async fn web_terminal_ws(
 
                         match msg {
                             Message::Text(t) => {
-                                match serde_json::from_str::<WsMessage>(&t) {
+                                match serde_json::from_str::<WsRequest>(&t) {
                                     Err(err) => {
                                         tracing::debug!(?err, "Can't parse message");
                                     },
                                     Ok(msg) => {
-                                       if let Err(err) = tx.send(msg.message).await {
+                                       if let Err(err) = tx.send(WsMessage::Message(msg.message)).await {
                                             tracing::error!(?err, "Can't send message");
                                        }
                                     }
@@ -1075,6 +1083,16 @@ pub async fn web_terminal_ws(
                     cnt
             }});
 
+            let mut ping_task = tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    if let Err(err) = tx.send(WsMessage::Ping).await {
+                        tracing::error!(?err, "Can't send ping");
+                        break;
+                    }
+                }
+            });
+
             // If any one of the tasks exit, abort the other.
             tokio::select! {
                 rv_a = (&mut send_task) => {
@@ -1083,6 +1101,7 @@ pub async fn web_terminal_ws(
                         Err(a) => println!("Error sending messages {a:?}")
                     }
                     recv_task.abort();
+                    ping_task.abort();
                 },
                 rv_b = (&mut recv_task) => {
                     match rv_b {
@@ -1090,11 +1109,20 @@ pub async fn web_terminal_ws(
                         Err(b) => println!("Error receiving messages {b:?}")
                     }
                     send_task.abort();
+                    ping_task.abort();
+                },
+                rv_c = (&mut ping_task) => {
+                    match rv_c {
+                        Ok(_c) => println!("Ping task finished"),
+                        Err(c) => println!("Error ping task {c:?}")
+                    }
+                    send_task.abort();
+                    recv_task.abort();
                 }
             }
 
             // returning from the handler closes the websocket connection
-            tracing::debug!(?who, "Websocket context destroyed");
+            tracing::info!(?who, "Websocket context destroyed");
         }
     })
 }
