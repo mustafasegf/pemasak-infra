@@ -1,4 +1,5 @@
 use std::{borrow::Cow, collections::HashMap, fs::File, net::SocketAddr, ops::ControlFlow};
+use tokio::sync::mpsc::{self, Sender};
 
 use axum::{
     extract::{
@@ -19,7 +20,7 @@ use bollard::{
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use leptos::{ssr::render_to_string, *};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use uuid::Uuid;
 
@@ -50,6 +51,7 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/:owner/:project/volume/delete", post(delete_volume))
         .route_layer(middleware::from_fn(auth))
         .route_with_tsr("/:owner/:project/terminal/ws", get(web_terminal_ws))
+        .route_with_tsr("/:owner/:project/terminal", get(web_terminal_ui))
 }
 
 #[derive(Deserialize, Validate, Debug)]
@@ -920,6 +922,29 @@ pub async fn delete_project(
     to_response(status)
 }
 
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsMessage {
+    pub message: String,
+    #[serde(rename = "HEADERS")]
+    pub headers: Headers,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Headers {
+    #[serde(rename = "HX-Request")]
+    pub hx_request: Option<String>,
+    #[serde(rename = "HX-Trigger")]
+    pub hx_trigger: Option<String>,
+    #[serde(rename = "HX-Trigger-Name")]
+    pub hx_trigger_name: Option<String>,
+    #[serde(rename = "HX-Target")]
+    pub hx_target: Option<String>,
+    #[serde(rename = "HX-Current-URL")]
+    pub hx_current_url: Option<String>,
+}
+
 #[tracing::instrument]
 pub async fn web_terminal_ws(
     Path((owner, project)): Path<(String, String)>,
@@ -937,50 +962,18 @@ pub async fn web_terminal_ws(
     // let who = SocketAddr::from(([127, 0, 0, 1], 0));
     let who = addr;
 
-    fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
-        match msg {
-            Message::Text(t) => {
-                println!(">>> {who} sent str: {t:?}");
-            }
-            Message::Binary(d) => {
-                println!(">>> {} sent {} bytes: {:?}", who, d.len(), d);
-            }
-            Message::Close(c) => {
-                if let Some(cf) = c {
-                    println!(
-                        ">>> {} sent close with code {} and reason `{}`",
-                        who, cf.code, cf.reason
-                    );
-                } else {
-                    println!(">>> {who} somehow sent close message without CloseFrame");
-                }
-                return ControlFlow::Break(());
-            }
-
-            Message::Pong(v) => {
-                println!(">>> {who} sent pong with {v:?}");
-            }
-            // You should never need to manually handle Message::Ping, as axum's websocket library
-            // will do so for you automagically by replying with Pong and copying the v according to
-            // spec. But if you need the contents of the pings you can see them here.
-            Message::Ping(v) => {
-                println!(">>> {who} sent ping with {v:?}");
-            }
-        }
-        ControlFlow::Continue(())
-    }
+    let (tx, mut rx) = mpsc::channel::<String>(2);
 
     tracing::info!(?user_agent, "New websocket connection");
+
     ws.on_upgrade(move |mut socket| {
         async move {
             
             //send a ping (unsupported by some browsers) just to kick things off and get a response
-            if socket.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
-                println!("Pinged {who}...");
+            if socket.send(Message::Ping(vec![])).await.is_ok() {
+                tracing::debug!(?who, "Pinged");
             } else {
-                println!("Could not send ping {who}!");
-                // no Error here since the only thing we can do is to close the connection.
-                // If we can not send messages, there is no way to salvage the statemachine anyway.
+                tracing::debug!(?who, "Could not send ping");
                 return;
             }
 
@@ -990,8 +983,12 @@ pub async fn web_terminal_ws(
             // connections.
             if let Some(msg) = socket.recv().await {
                 if let Ok(msg) = msg {
-                    if process_message(msg, who).is_break() {
-                        return;
+                    if let Message::Close(c) = msg {
+                        if let Some(cf) = c {
+                            tracing::debug!(?who, code = cf.code, reason = ?cf.reason, "client disconected");
+                        } else {
+                            tracing::debug!(?who, "client disconected wihtout CloseFrame");
+                        }
                     }
                 } else {
                     println!("client {who} abruptly disconnected");
@@ -999,21 +996,6 @@ pub async fn web_terminal_ws(
                 }
             }
 
-            // Since each client gets individual statemachine, we can pause handling
-            // when necessary to wait for some external event (in this case illustrated by sleeping).
-            // Waiting for this client to finish getting its greetings does not prevent other clients from
-            // connecting to server and receiving their greetings.
-            for i in 1..5 {
-                if socket
-                    .send(Message::Text(format!("Hi {i} times!")))
-                    .await
-                    .is_err()
-                {
-                    println!("client {who} abruptly disconnected");
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
 
             // By splitting socket we can send and receive at the same time. In this example we will send
             // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
@@ -1021,21 +1003,28 @@ pub async fn web_terminal_ws(
 
             // Spawn a task that will push several messages to the client (does not matter what client does)
             let mut send_task = tokio::spawn(async move {
-                let n_msg = 20;
-                for i in 0..n_msg {
-                    // In case of any websocket error, we exit.
-                    if sender
-                        .send(Message::Text(format!("Server message {i} ...")))
-                        .await
-                        .is_err()
-                    {
-                        return i;
-                    }
+                let mut i = 0;
+                loop {
+                    match rx.recv().await {
+                        None => {
+                            tracing::error!("Can't receive message from channel");
+                            break;
+                        },
+                        Some(msg) => {
+                            if sender
+                                .send(Message::Text(format!(r#"<div id="data" hx-swap-oob="beforeend"><p>{msg}</p></div> "#)))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                            // i += 1;
 
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        }
+                    }
                 }
 
-                println!("Sending close to {who}...");
+                tracing::debug!(?who, "Sending close");
                 if let Err(e) = sender
                     .send(Message::Close(Some(CloseFrame {
                         code: axum::extract::ws::close_code::NORMAL,
@@ -1043,23 +1032,48 @@ pub async fn web_terminal_ws(
                     })))
                     .await
                 {
-                    println!("Could not send Close due to {e}, probably it is ok?");
+                    tracing::debug!(?e, "Could not send Close due to {e}");
                 }
-                n_msg
+                i
             });
 
             // This second task will receive messages from client and print them on server console
-            let mut recv_task = tokio::spawn(async move {
-                let mut cnt = 0;
-                while let Some(Ok(msg)) = receiver.next().await {
-                    cnt += 1;
-                    // print message and break if instructed to do so
-                    if process_message(msg, who).is_break() {
-                        break;
+            let mut recv_task = tokio::spawn({
+                // let tx = tx.clone();
+                async move {
+                    let mut cnt = 0;
+                    while let Some(Ok(msg)) = receiver.next().await {
+                        cnt += 1;
+                        // print message and break if instructed to do so
+                        let tx = tx.clone();
+
+                        match msg {
+                            Message::Text(t) => {
+                                match serde_json::from_str::<WsMessage>(&t) {
+                                    Err(err) => {
+                                        tracing::debug!(?err, "Can't parse message");
+                                    },
+                                    Ok(msg) => {
+                                       if let Err(err) = tx.send(msg.message).await {
+                                            tracing::error!(?err, "Can't send message");
+                                       }
+                                    }
+                                };
+                            }
+                            Message::Close(c) => {
+                                if let Some(cf) = c {
+                                    tracing::debug!(?who, code = cf.code, reason = ?cf.reason, "client disconected");
+                                } else {
+                                    tracing::debug!(?who, "client disconected wihtout CloseFrame");
+                                }
+                                break;
+                            }
+                            _ => {}
+
+                        }
                     }
-                }
-                cnt
-            });
+                    cnt
+            }});
 
             // If any one of the tasks exit, abort the other.
             tokio::select! {
@@ -1080,7 +1094,38 @@ pub async fn web_terminal_ws(
             }
 
             // returning from the handler closes the websocket connection
-            println!("Websocket context {who} destroyed");
+            tracing::debug!(?who, "Websocket context destroyed");
         }
     })
+}
+
+
+#[tracing::instrument]
+pub async fn web_terminal_ui(
+    Path((owner, project)): Path<(String, String)>,
+) -> Response<Body> {
+
+    let ws_path = format!("/{owner}/{project}/terminal/ws");
+    let html = render_to_string(move || {
+
+        view! {
+            <Base>
+                <h1> {owner}"/"{project} </h1>
+                <div hx-ext="ws" ws-connect={ws_path}> 
+                    <div id="data" hx-swap-oob="beforeend" class="flex flex-col gap-1" ></div>
+                    <form id="form" ws-send hx-on:htmx:wsAfterSend="this.reset()" >
+                        <input name="message" type="text" placeholder="message" class="input input-bordered w-full max-w-xs"/>
+                    </form>
+                </div>
+                <div id="result"></div>
+
+            </Base>
+        }
+    })
+    .into_owned();
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(html))
+        .unwrap()
 }
