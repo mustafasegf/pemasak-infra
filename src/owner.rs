@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use axum::{
     extract::{Path, State},
     middleware,
@@ -131,7 +129,7 @@ pub async fn invite_project_member(
     let authed_user_id = auth.id;
     let validated_request = match req.validate(&()) {
         Ok(validated_request) => validated_request.into_inner(),
-        Err(err) => {
+        Err(_err) => {
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from("Invalid request"))
@@ -454,13 +452,12 @@ pub async fn update_project_owner(
 }
 
 pub async fn project_owner_suggestions(
-    auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Form(req): Form<Unvalidated<UserSuggestionRequest>>,
 ) -> Response<Body> {
     let validated = match req.validate(&()) {
         Ok(validated) => validated.into_inner(),
-        Err(err) => {
+        Err(_err) => {
             let html = render_to_string(move || {
                 view! {
                     <ul id="user-suggestions" class="p-2 shadow menu dropdown-content z-[1] bg-base-100 rounded-box w-52"></ul>
@@ -680,7 +677,6 @@ pub async fn project_owner_invite_member_ui(
 }
 
 pub async fn project_owner_group_details_ui(
-    auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Path(owner_id): Path<String>,
 ) -> Response<Body> {
@@ -794,8 +790,8 @@ pub async fn project_owner_group_details_ui(
     };
 
     let html = render_to_string(move || {
-        let name = owner_group.name.clone();
-        let id = owner_group.id.clone();
+        let name = owner_group.name;
+        let id = owner_group.id;
 
         view! {
             <Base>
