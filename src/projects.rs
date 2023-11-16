@@ -1,5 +1,5 @@
 use std::{borrow::Cow, collections::HashMap, fs::File, net::SocketAddr, time::Duration};
-use tokio::sync::mpsc;
+use tokio::io::AsyncWriteExt;
 
 use axum::{
     extract::{
@@ -14,6 +14,7 @@ use axum::{
 use axum_extra::routing::RouterExt;
 use bollard::{
     container::{RemoveContainerOptions, StartContainerOptions, StopContainerOptions},
+    exec::{CreateExecOptions, StartExecResults},
     network::InspectNetworkOptions,
     Docker,
 };
@@ -574,9 +575,7 @@ pub async fn project_ui(
 }
 
 #[tracing::instrument]
-pub async fn delete_volume(
-    Path((owner, project)): Path<(String, String)>,
-) -> Response<Body> {
+pub async fn delete_volume(Path((owner, project)): Path<(String, String)>) -> Response<Body> {
     let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
     let db_name = format!("{}-db", container_name);
     let volume_name = format!("{}-volume", container_name);
@@ -945,12 +944,6 @@ pub struct Headers {
     pub hx_current_url: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum WsMessage {
-    Ping,
-    Message(String),
-}
-
 
 #[tracing::instrument]
 pub async fn web_terminal_ws(
@@ -968,8 +961,6 @@ pub async fn web_terminal_ws(
 
     // let who = SocketAddr::from(([127, 0, 0, 1], 0));
     let who = addr;
-
-    let (tx, mut rx) = mpsc::channel::<WsMessage>(2);
 
     tracing::info!(user_agent, "New websocket connection");
 
@@ -1002,6 +993,47 @@ pub async fn web_terminal_ws(
                 }
             }
 
+            let docker = match Docker::connect_with_local_defaults() {
+                Ok(docker) => docker,
+                Err(err) => {
+                    tracing::error!(?err, "Can't start terminal: Failed to connect to docker");
+                    return;
+                }
+            };
+
+            let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
+            let exec = match docker
+                .create_exec(
+                    &container_name,
+                    CreateExecOptions::<&str> {
+                        attach_stdout: Some(true),
+                        attach_stderr: Some(true),
+                        attach_stdin: Some(true),
+                        tty: Some(true),
+                        cmd: Some(vec!["bash"]),
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
+                Ok(exec) => exec,
+                Err(err) => {
+                    tracing::error!(?err, "Can't start terminal: Failed to create exec");
+                    return;
+                }
+            };
+
+            let (mut input, mut output)  =  match docker.start_exec(&exec.id, None).await {
+                Ok(StartExecResults::Attached { output, input }) => (input , output),
+                Ok(StartExecResults::Detached) => {
+                    tracing::error!("Can't start terminal: Failed to start exec");
+                    return;
+                },
+                Err(err) => {
+                    tracing::error!(?err, "Can't start terminal: Failed to start exec");
+                    return;
+                }
+            };
 
             // By splitting socket we can send and receive at the same time. In this example we will send
             let (mut sender, mut receiver) = socket.split();
@@ -1009,26 +1041,40 @@ pub async fn web_terminal_ws(
             let mut send_task = tokio::spawn(async move {
                 let mut i = 0;
                 loop {
-                    match rx.recv().await {
-                        None => {
-                            tracing::error!("Can't receive message from channel");
-                            break;
-                        },
-                        Some(WsMessage::Message(msg)) => {
-                            if sender
-                                .send(Message::Text(format!(r#"<div id="data" hx-swap-oob="beforeend"><p>{msg}</p></div> "#)))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                            i += 1;
-                        }
-                        Some(WsMessage::Ping) => {
+
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
                             if sender.send(Message::Ping(vec![])).await.is_err() {
                                 break;
                             }
-                        }
+                        },
+                        msg = output.next() => {
+                            match msg {
+                                Some(Ok(output)) => {
+                                    let bytes = output.clone().into_bytes();
+                                    let bytes = strip_ansi_escapes::strip(&bytes);
+                                    let msg = String::from_utf8_lossy(&bytes);
+
+                                    if sender
+                                        .send(Message::Text(format!(r#"<pre id="data" hx-swap-oob="beforeend">{msg}</pre> "#)))
+                                        .await
+                                        .is_err()
+                                    {
+                                        break;
+                                    }
+                                    i += 1;
+                                },
+                                Some(Err(err)) => {
+                                    tracing::error!(?err, "Can't receive message from terminal");
+                                    break;
+                                },
+                                None => {
+                                    tracing::error!("Can't receive message from terminal");
+                                    break;
+                                }
+                            }
+                        },
+
                     }
                 }
 
@@ -1045,16 +1091,13 @@ pub async fn web_terminal_ws(
                 i
             });
 
-            // This second task will receive messages from client and print them on server console
+            // This second task will receive messages from client
             let mut recv_task = tokio::spawn({
-                let tx = tx.clone();
                 async move {
                     let mut cnt = 0;
                     while let Some(Ok(msg)) = receiver.next().await {
                         cnt += 1;
                         // print message and break if instructed to do so
-                        let tx = tx.clone();
-
                         match msg {
                             Message::Text(t) => {
                                 match serde_json::from_str::<WsRequest>(&t) {
@@ -1062,9 +1105,19 @@ pub async fn web_terminal_ws(
                                         tracing::debug!(?err, "Can't parse message");
                                     },
                                     Ok(msg) => {
-                                       if let Err(err) = tx.send(WsMessage::Message(msg.message)).await {
-                                            tracing::error!(?err, "Can't send message");
-                                       }
+                                        let mut msg = msg.message;
+                                        msg.push_str("\n");
+                                        match input.write_all(msg.as_bytes()).await {
+                                            Err(err) => {
+                                                tracing::error!(?err, "Can't write to terminal");
+                                                break;
+                                            },
+                                            Ok(_) => {
+                                                // if let Err(err) = tx.send(WsMessage::Message(msg.message)).await {
+                                                //     tracing::error!(?err, "Can't send message");
+                                                // }
+                                            }
+                                        }
                                     }
                                 };
                             }
@@ -1083,15 +1136,6 @@ pub async fn web_terminal_ws(
                     cnt
             }});
 
-            let mut ping_task = tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                    if let Err(err) = tx.send(WsMessage::Ping).await {
-                        tracing::error!(?err, "Can't send ping");
-                        break;
-                    }
-                }
-            });
 
             // If any one of the tasks exit, abort the other.
             tokio::select! {
@@ -1101,7 +1145,6 @@ pub async fn web_terminal_ws(
                         Err(a) => println!("Error sending messages {a:?}")
                     }
                     recv_task.abort();
-                    ping_task.abort();
                 },
                 rv_b = (&mut recv_task) => {
                     match rv_b {
@@ -1109,16 +1152,7 @@ pub async fn web_terminal_ws(
                         Err(b) => println!("Error receiving messages {b:?}")
                     }
                     send_task.abort();
-                    ping_task.abort();
                 },
-                rv_c = (&mut ping_task) => {
-                    match rv_c {
-                        Ok(_c) => println!("Ping task finished"),
-                        Err(c) => println!("Error ping task {c:?}")
-                    }
-                    send_task.abort();
-                    recv_task.abort();
-                }
             }
 
             // returning from the handler closes the websocket connection
@@ -1127,25 +1161,25 @@ pub async fn web_terminal_ws(
     })
 }
 
-
 #[tracing::instrument]
-pub async fn web_terminal_ui(
-    Path((owner, project)): Path<(String, String)>,
-) -> Response<Body> {
-
+pub async fn web_terminal_ui(Path((owner, project)): Path<(String, String)>) -> Response<Body> {
     let ws_path = format!("/{owner}/{project}/terminal/ws");
     let html = render_to_string(move || {
 
         view! {
             <Base>
                 <h1> {owner}"/"{project} </h1>
-                <div hx-ext="ws" ws-connect={ws_path}> 
-                    <div id="data" hx-swap-oob="beforeend" class="flex flex-col gap-1" ></div>
+                <div class="bg-gray-800 p-2" hx-ext="ws" ws-connect={ws_path}> 
+                    <pre id="data" hx-swap-oob="beforeend" class="flex flex-col gap-1"></pre>
+
                     <form id="form" ws-send hx-on:htmx:wsAfterSend="this.reset()" >
-                        <input name="message" type="text" placeholder="message" class="input input-bordered w-full max-w-xs"/>
+                        <input name="message" type="text" placeholder="message" 
+                        // class="input input-bordered w-full max-w-xs"
+                        class="bg-transparent border-transparent w-full text-white !outline-none"
+                        />
                     </form>
                 </div>
-                <div id="result"></div>
+                <pre id="result"></pre>
 
             </Base>
         }
