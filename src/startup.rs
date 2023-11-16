@@ -11,7 +11,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use uuid::Uuid;
 
-use std::net::{TcpListener, SocketAddr};
+use std::net::{SocketAddr, TcpListener};
 
 use crate::auth::User;
 use crate::configuration::Settings;
