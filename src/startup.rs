@@ -22,6 +22,7 @@ use crate::{auth, git, owner, projects, telemetry};
 pub struct AppState {
     pub base: String,
     pub git_auth: bool,
+    pub sso: bool,
     pub domain: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,

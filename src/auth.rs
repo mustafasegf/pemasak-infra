@@ -186,10 +186,55 @@ pub struct UserRequest {
     pub password: Secret<String>,
 }
 
+// auto gen
+
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", untagged)]
+pub enum SsoResponse {
+    #[serde(rename_all = "camelCase")]
+    ServiceResponse { service_response: ServiceResponse },
+    Error { error: String },
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceResponse {
+    pub authentication_success: AuthenticationSuccess,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthenticationSuccess {
+    pub attributes: Attributes,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attributes {
+    pub jurusan: Jurusan,
+    #[serde(rename = "ldap_role")]
+    pub ldap_role: String,
+    #[serde(rename = "status_mahasiswa")]
+    pub status_mahasiswa: String,
+    #[serde(rename = "status_mahasiswa_aktif")]
+    pub status_mahasiswa_aktif: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Jurusan {
+    pub faculty: String,
+    pub short_faculty: String,
+    pub major: String,
+    pub program: String,
+}
+
+
 #[tracing::instrument(skip(auth, pool))]
 pub async fn register_user(
     auth: Auth,
-    State(AppState { pool, .. }): State<AppState>,
+    State(AppState { pool, sso, .. }): State<AppState>,
     Form(req): Form<Unvalidated<UserRequest>>,
 ) -> Response<Body> {
     let UserRequest {
@@ -291,7 +336,7 @@ pub async fn register_user(
     let hasher = Argon2::default();
     let salt = SaltString::generate(&mut OsRng);
 
-    let password = match hasher.hash_password(password.expose_secret().as_bytes(), &salt) {
+    let password_hash = match hasher.hash_password(password.expose_secret().as_bytes(), &salt) {
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!(?err, "Can't register User: Failed to hash password");
@@ -329,13 +374,128 @@ pub async fn register_user(
         }
     };
 
-    // TODO: check if user from sso ui
+    // TODO: use actual sso and not proxy
+    if sso {
+
+        // TODO: not sure if this is the best way to do this
+        let client = reqwest::Client::new();
+        let res = match client
+            .post("https://sso.mus.sh")
+            .body(serde_json::json!({
+                "username": username,
+                "password": password.expose_secret(),
+                "casUrl": "https://sso.ui.ac.id/cas/",
+                "serviceUrl": "http%3A%2F%2Fberanda.ui.ac.id%2Fpersonal%2F",
+                "EncodeUrl": true
+            }).to_string())
+            .send()
+            .await {
+            Ok(res) => res,
+            Err(err) => {
+                tracing::error!(?err, "Can't register user: Failed to request sso");
+                if let Err(err) = tx.rollback().await {
+                    tracing::error!(?err, "Can't register user: Failed to rollback transaction");
+                }
+
+                let html = render_to_string(move || {
+                    view! {
+                        <h1> Failed to request sso {err.to_string() } </h1>
+                    }
+                })
+                .into_owned();
+
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("Content-Type", "text/html")
+                    .body(Body::from(html))
+                    .unwrap();
+            }
+        };
+
+        let body = match res.bytes().await {
+            Ok(body) => body,
+            Err(err) => {
+                tracing::error!(?err, "Can't register user: Failed to get body");
+                if let Err(err) = tx.rollback().await {
+                    tracing::error!(?err, "Can't register user: Failed to rollback transaction");
+                }
+
+                let html = render_to_string(move || {
+                    view! {
+                        <h1> Failed to get body {err.to_string() } </h1>
+                    }
+                })
+                .into_owned();
+
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("Content-Type", "text/html")
+                    .body(Body::from(html))
+                    .unwrap();
+            }
+        };
+
+        tracing::warn!(?body);
+
+        let sso_res = match serde_json::from_slice::<SsoResponse>(&body) {
+            Ok(SsoResponse::ServiceResponse { service_response }) => service_response.authentication_success.attributes,
+            Ok(SsoResponse::Error { .. }) => {
+                let html = render_to_string(move || {
+                    view! {
+                        <h1> "Wrong username or password" </h1>
+                    }
+                })
+                .into_owned();
+
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("Content-Type", "text/html")
+                    .body(Body::from(html))
+                    .unwrap();
+            }
+            Err(err) => {
+                tracing::error!(?err, "Can't register user: Failed to parse body");
+                if let Err(err) = tx.rollback().await {
+                    tracing::error!(?err, "Can't register user: Failed to rollback transaction");
+                }
+
+                let html = render_to_string(move || {
+                    view! {
+                        <h1> Failed to parse body {err.to_string() } </h1>
+                    }
+                })
+                .into_owned();
+
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("Content-Type", "text/html")
+                    .body(Body::from(html))
+                    .unwrap();
+            }
+        };
+
+        if sso_res.jurusan.faculty != "Ilmu Komputer" {
+            let html = render_to_string(move || {
+                view! {
+                    <h1> User is not from Ilmu Komputer </h1>
+                }
+            })
+            .into_owned();
+
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(html))
+                .unwrap();
+        }
+    }
+
 
     if let Err(err) = sqlx::query!(
         r#"INSERT INTO users (id, username, password, name) VALUES ($1, $2, $3, $4)"#,
         user_id,
         username,
-        password.to_string(),
+        password_hash.to_string(),
         name
     )
     .execute(&mut *tx)
