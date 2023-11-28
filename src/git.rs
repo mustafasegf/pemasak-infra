@@ -17,6 +17,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use axum_extra::routing::RouterExt;
 use git2::Repository;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{
@@ -105,10 +106,10 @@ async fn basic_auth<B>(
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route("/:owner/:repo/git-upload-pack", post(upload_pack_rpc))
-        .route("/:owner/:repo/git-receive-pack", post(recieve_pack_rpc))
-        .route("/:owner/:repo/info/refs", get(get_info_refs))
-        .route(
+        .route_with_tsr("/:owner/:repo/git-upload-pack", post(upload_pack_rpc))
+        .route_with_tsr("/:owner/:repo/git-receive-pack", post(recieve_pack_rpc))
+        .route_with_tsr("/:owner/:repo/info/refs", get(get_info_refs))
+        .route_with_tsr(
             "/:owner/:repo/HEAD",
             get(
                 |Path((owner, repo)): Path<(String, String)>,
@@ -117,7 +118,7 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
                 },
             ),
         )
-        .route(
+        .route_with_tsr(
             "/:owner/:repo/objects/info/alternates",
             get(
                 |Path((owner, repo)): Path<(String, String)>,
@@ -126,7 +127,7 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
                 },
             ),
         )
-        .route(
+        .route_with_tsr(
             "/:owner/:repo/objects/info/http-alternates",
             get(
                 |Path((owner, repo)): Path<(String, String)>,
@@ -135,8 +136,8 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
                 },
             ),
         )
-        .route("/:owner/:repo/objects/info/packs", get(get_info_packs))
-        .route(
+        .route_with_tsr("/:owner/:repo/objects/info/packs", get(get_info_packs))
+        .route_with_tsr(
             "/:owner/:repo/objects/info/:file",
             get(
                 |Path((owner, repo, head, file)): Path<(String, String, String, String)>,
@@ -145,8 +146,8 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
                 },
             ),
         )
-        .route("/:owner/:repo/objects/:head/:hash", get(get_loose_object))
-        .route(
+        .route_with_tsr("/:owner/:repo/objects/:head/:hash", get(get_loose_object))
+        .route_with_tsr(
             "/:owner/:repo/objects/packs/:file",
             get(get_pack_or_idx_file),
         )

@@ -45,14 +45,14 @@ const TOKEN_LENGTH: usize = 32;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route("/new", get(create_project_ui).post(create_project))
-        .route("/dashboard", get(dashboard_ui).post(create_project))
+        .route_with_tsr("/new", get(create_project_ui).post(create_project))
+        .route_with_tsr("/dashboard", get(dashboard_ui).post(create_project))
         .route_with_tsr("/:owner/:project", get(project_ui))
         .route_with_tsr("/:owner/:project/delete", post(delete_project))
         .route_with_tsr("/:owner/:project/volume/delete", post(delete_volume))
-        .route_layer(middleware::from_fn(auth))
         .route_with_tsr("/:owner/:project/terminal/ws", get(web_terminal_ws))
         .route_with_tsr("/:owner/:project/terminal", get(web_terminal_ui))
+        .route_layer(middleware::from_fn(auth))
 }
 
 #[derive(Deserialize, Validate, Debug)]

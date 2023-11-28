@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Form, Router,
 };
+use axum_extra::routing::RouterExt;
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
@@ -919,16 +920,16 @@ pub async fn project_owner_group_list_ui(
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route("/user/suggestions", post(project_owner_suggestions))
-        .route(
+        .route_with_tsr("/user/suggestions", post(project_owner_suggestions))
+        .route_with_tsr(
             "/owner",
             get(project_owner_group_list_ui).post(create_project_owner),
         )
-        .route(
+        .route_with_tsr(
             "/owner/:owner_id",
             get(project_owner_group_details_ui).post(update_project_owner),
         )
-        .route(
+        .route_with_tsr(
             "/owner/:owner_id/invite",
             get(project_owner_invite_member_ui).post(invite_project_member),
         )

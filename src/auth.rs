@@ -7,6 +7,7 @@ use axum::{
     routing::get,
     Form, Router,
 };
+use axum_extra::routing::RouterExt;
 use axum_session::SessionStore;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
@@ -40,9 +41,9 @@ pub type Auth = AuthSession<User, Uuid, SessionPgPool, PgPool>;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route("/register", get(register_user_ui).post(register_user))
-        .route("/login", get(login_user_ui).post(login_user))
-        .route("/logout", get(logout_user).post(logout_user))
+        .route_with_tsr("/register", get(register_user_ui).post(register_user))
+        .route_with_tsr("/login", get(login_user_ui).post(login_user))
+        .route_with_tsr("/logout", get(logout_user).post(logout_user))
 }
 
 pub async fn auth<B>(
