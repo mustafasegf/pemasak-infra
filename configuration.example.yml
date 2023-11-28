@@ -6,6 +6,7 @@ application:
   ipv4: false
 
 auth:
+  sso: true
   # in hour
   lifespan: 168
   cookie_name: session
