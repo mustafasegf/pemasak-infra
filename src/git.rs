@@ -392,9 +392,34 @@ pub async fn recieve_pack_rpc(
         true => format!("{base}/{owner}/{repo}"),
         false => format!("{base}/{owner}/{repo}.git"),
     };
+    let head_dir = format!("{path}/refs/heads");
+
     let res = service_rpc("receive-pack", &path, headers, body).await;
     let container_src = format!("{path}/master");
     let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
+
+    // get first file in branch folder
+    let branch = match std::fs::read_dir(&head_dir) {
+        Ok(mut dir) => dir.find_map(|entry| {
+            entry.ok().and_then(|e| {
+                e.file_name().into_string().ok()
+                // .and_then(|s| s.strip_suffix(".lock").map(|s| s.to_string()))
+            })
+        }),
+        Err(_) => None,
+    };
+
+    let branch = match branch {
+        Some(branch) => branch,
+        None => {
+            tracing::error!("no branch found");
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
+    };
+    tracing::info!(branch, "git branch name");
 
     // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {
@@ -405,7 +430,7 @@ pub async fn recieve_pack_rpc(
         fo.download_tags(git2::AutotagOption::All);
 
         let mut remote = repo.find_remote("origin").unwrap();
-        remote.fetch(&["master"], Some(&mut fo), None).unwrap();
+        remote.fetch(&[&branch], Some(&mut fo), None).unwrap();
 
         let fetch_head = repo.find_reference("FETCH_HEAD").unwrap();
         let fetch_commit = repo.reference_to_annotated_commit(&fetch_head).unwrap();
@@ -414,8 +439,8 @@ pub async fn recieve_pack_rpc(
 
         if analysis.0.is_fast_forward() {
             tracing::info!("fast forward");
-            let refname = "refs/heads/master";
-            match repo.find_reference(refname) {
+            let refname = format!("refs/heads/{branch}");
+            match repo.find_reference(&refname) {
                 Ok(mut r) => {
                     fast_forward(&repo, &mut r, &fetch_commit).unwrap();
                 }
@@ -424,13 +449,13 @@ pub async fn recieve_pack_rpc(
                     // commit directly. Usually this is because you are pulling
                     // into an empty repository.
                     repo.reference(
-                        refname,
+                        &refname,
                         fetch_commit.id(),
                         true,
-                        &format!("Setting {} to master", fetch_commit.id()),
+                        &format!("Setting {} to {}", fetch_commit.id(), &branch),
                     )
                     .unwrap();
-                    repo.set_head(refname).unwrap();
+                    repo.set_head(&refname).unwrap();
                     repo.checkout_head(Some(
                         git2::build::CheckoutBuilder::default()
                             .allow_conflicts(true)

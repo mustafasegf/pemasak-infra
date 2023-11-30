@@ -306,8 +306,8 @@ pub async fn create_project(
             <h1> Project created successfully  </h1>
             <div class="p-4 mb-4 bg-gray-800">
                 <pre><code id="code">
-                    git remote add origin {format!(" http://{domain}/{owner}/{project}")} <br/>
-                    {"git push -u origin master"}
+                    git remote add pws {format!(" http://{domain}/{owner}/{project}")} <br/>
+                    {"git push -u pws master"}
                 </code></pre>
             </div>
             <button
