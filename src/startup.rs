@@ -1,8 +1,11 @@
 use axum::extract::{Host, State};
-use axum::Router;
+use axum::middleware::Next;
+use axum::{middleware, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
+use bytes::Bytes;
+use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
@@ -59,7 +62,8 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .layer(SessionLayer::new(session_store))
         .nest_service("/assets", ServeDir::new("assets"))
         .fallback(fallback)
-        .with_state(state)
+        .with_state(state.clone())
+        .route_layer(middleware::from_fn_with_state(state, fallback_middleware))
         .layer(cors);
 
     let addr = listener
@@ -146,6 +150,89 @@ pub async fn fallback(
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::empty())
                 .unwrap()
+        }
+    }
+}
+
+pub async fn fallback_middleware(
+    State(AppState {
+        pool,
+        client,
+        domain,
+        ..
+    }): State<AppState>,
+    Host(hostname): Host,
+    uri: axum::http::Uri,
+    mut req: Request<Body>,
+    next: Next<Body>,
+    // mut req: Request<Body>,
+    // ) -> Response<Body> {
+) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, Response<Body>> {
+    let subdomain = hostname
+        .trim_end_matches(domain.as_str())
+        .trim_end_matches('.');
+
+    tracing::warn!("subdomain {}", subdomain);
+
+    if subdomain.is_empty() {
+        tracing::warn!("subdomain is empty");
+        return Ok(next.run(req).await);
+        // return Response::builder()
+        //     .status(StatusCode::BAD_REQUEST)
+        //     .body(Body::empty())
+        //     .unwrap();
+    }
+
+    tracing::warn!("subdomain {}", subdomain);
+    tracing::error!(?subdomain, "subdomain {} is accessed", subdomain);
+
+    match sqlx::query!(
+        r#"SELECT docker_ip, port
+           FROM domains
+           WHERE name = $1
+        "#,
+        subdomain
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(route)) => {
+            tracing::warn!(
+                ip = route.docker_ip,
+                port = route.port,
+                ?uri,
+                "route found {}",
+                uri
+            );
+            let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
+            *req.uri_mut() = Uri::try_from(uri).unwrap();
+            match client.request(req).await {
+                Ok(res) => Err(res),
+                Err(err) => {
+                    tracing::error!(?err, "Can't access container: Failed request to container");
+
+                    Err(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Body::empty())
+                        .unwrap())
+                }
+            }
+        }
+        Ok(None) => {
+            tracing::warn!(?uri, "route not found {}", uri);
+
+            Err(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap())
+        }
+        Err(err) => {
+            tracing::error!(?err, "Can't get subdomain: Failed to query database");
+
+            Err(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::empty())
+                .unwrap())
         }
     }
 }
