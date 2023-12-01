@@ -31,7 +31,7 @@ pub struct BuilderSettings {
 pub struct ApplicationSettings {
     pub port: u16,
     pub host: String,
-    pub body_limit: String,
+    pub bodylimit: String,
     pub ipv6: bool,
 }
 
@@ -57,20 +57,20 @@ pub struct AuthSettings {
     pub sso: bool,
     /// in hours
     pub lifespan: i64,
-    pub cookie_name: String,
+    pub cookiename: String,
     /// in days
-    pub cookie_max_age: i64,
-    pub cookie_http_only: bool,
-    pub cookie_secure: bool,
+    pub maxage: i64,
+    pub httponly: bool,
+    pub secure: bool,
     /// in days
-    pub max_lifespan: i64,
+    pub maxlifespan: i64,
 }
 
 pub fn get_configuration() -> Result<Settings, ConfigError> {
     Config::builder()
         .set_default("application.host", "localhost")?
         .set_default("application.port", 8080)?
-        .set_default("application.body_limit", "25mib")?
+        .set_default("application.bodylimit", "25mib")?
         .set_default("application.ipv6", false)?
         .set_default("database.user", "postgres")?
         .set_default("database.password", "postgres")?
@@ -78,15 +78,15 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("database.port", 5432)?
         .set_default("database.name", "postgres")?
         .set_default("database.timeout", 20)?
-        .set_default("git.base", "./src/git-repo")?
+        .set_default("git.base", "./git-repo")?
         .set_default("git.auth", true)?
         .set_default("auth.sso", true)?
         .set_default("auth.lifespan", 24 * 7)?
-        .set_default("auth.cookie_name", "session")?
-        .set_default("auth.cookie_max_age", 365)?
-        .set_default("auth.cookie_http_only", true)?
-        .set_default("auth.cookie_secure", false)?
-        .set_default("auth.max_lifespan", 365)?
+        .set_default("auth.cookiename", "session")?
+        .set_default("auth.maxage", 365)?
+        .set_default("auth.httponly", true)?
+        .set_default("auth.secure", false)?
+        .set_default("auth.maxlifespan", 365)?
         .set_default("build.timeout", 120000)?
         .set_default(
             "builder.max",
@@ -94,7 +94,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
                 .unwrap_or(NonZeroUsize::new(2).unwrap())
                 .get() as i32,
         )?
-        .set_default("builder.cpu_ms", 100000)?
+        .set_default("builder.cpums", 100000)?
         .add_source(config::File::with_name("configuration"))
         .add_source(config::Environment::default().separator("_"))
         .build()?
@@ -133,7 +133,7 @@ impl Settings {
     }
 
     pub fn body_limit(&self) -> usize {
-        Byte::from_str(&self.application.body_limit)
+        Byte::from_str(&self.application.bodylimit)
             .unwrap_or(Byte::from_bytes(25 * 1024 * 1024))
             .get_bytes() as usize
     }
@@ -141,10 +141,10 @@ impl Settings {
     pub fn session_config(&self) -> SessionConfig {
         SessionConfig::default()
             .with_lifetime(Duration::hours(self.auth.lifespan))
-            .with_cookie_name(self.auth.cookie_name.clone())
-            .with_max_age(Some(Duration::days(self.auth.cookie_max_age)))
-            .with_http_only(self.auth.cookie_http_only)
-            .with_secure(self.auth.cookie_secure)
-            .with_max_lifetime(Duration::days(self.auth.max_lifespan))
+            .with_cookie_name(self.auth.cookiename.clone())
+            .with_max_age(Some(Duration::days(self.auth.maxage)))
+            .with_http_only(self.auth.httponly)
+            .with_secure(self.auth.secure)
+            .with_max_lifetime(Duration::days(self.auth.maxlifespan))
     }
 }
