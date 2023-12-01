@@ -352,6 +352,7 @@ pub async fn build_docker(
         image: Some(image_name.clone()),
         // TDDO: rethink if we need to make this configurable
         env: Some(vec![
+            "PRODUCTION=true".to_string(),
             format!("PORT={}", port),
             format!("DATABASE_URL={}", db_url),
         ]),

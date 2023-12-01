@@ -321,18 +321,18 @@ pub async fn create_project(
             .unwrap();
     }
 
-    let html = render_to_string(move || { view! {
-        // TODO
-        <h1> Project created successfully  </h1>
-        <div class="p-4 mb-4 bg-gray-800">
-            <pre><code id="code"> 
-                git remote add origin {format!(" http://{domain}/{owner}/{project}")} <br/>
-                {"git push -u origin master"}
-            </code></pre>
-        </div>
-        <button
-            class="btn btn-outline btn-secondary mb-4"
-            onclick="
+    let html = render_to_string(move || {
+        view! {
+            <h1> Project created successfully  </h1>
+            <div class="p-4 mb-4 bg-gray-800">
+                <pre><code id="code">
+                    git remote add pws {format!(" http://{domain}/{owner}/{project}")} <br/>
+                    {"git push -u pws master"}
+                </code></pre>
+            </div>
+            <button
+                class="btn btn-outline btn-secondary mb-4"
+                onclick="
                 let lb = '\\n'
                 if(navigator.userAgent.indexOf('Windows') != -1) {{
                   lb = '\\r\\n'
