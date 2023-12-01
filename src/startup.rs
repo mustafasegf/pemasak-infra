@@ -96,7 +96,7 @@ pub async fn fallback(
 
     if subdomain.is_empty() {
         return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
+            .status(StatusCode::NOT_FOUND)
             .body(Body::empty())
             .unwrap();
     }
