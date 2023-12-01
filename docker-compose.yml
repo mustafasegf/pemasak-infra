@@ -15,9 +15,81 @@ services:
     ports:
       - "${DB_PORT}:5432"
 
+  docker-host:
+    image: qoomon/docker-host
+    container_name: docker-host-pemasak
+    networks:
+      - pemasak
+    cap_add: [ 'NET_ADMIN', 'NET_RAW' ]
+    mem_limit: 8M
+    restart: always
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus-pemasak
+    restart: always
+    # network_mode: host
+    networks:
+      - pemasak
+    ports:
+      - "9090:9090"
+      
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=180d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+        # - '--web.config.file=/etc/prometheus/web.yml'
+    volumes:
+      - ./config/prometheus:/etc/prometheus
+      - prom_data:/prometheus
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana-pemasak
+    restart: always
+    # network_mode: host
+    networks:
+      - pemasak
+    ports:
+      - "3000:3000"
+
+    environment:
+      # TODO: move this to env
+      - GF_SECURITY_ADMIN_USER=chef
+      - GF_SECURITY_ADMIN_PASSWORD=strong-powerful-password
+        #- GF_SERVER_ROOT_URL=/grafana
+        #- GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - ./config/grafana:/etc/grafana/provisioning/datasources
+      - grafana-data:/var/lib/grafana
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter-pemasak
+    restart: always
+    # network_mode: host
+    networks:
+      - pemasak
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.systemd'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
 
 volumes:
   db-data:
+    driver: local
+  prom_data:
+    driver: local
+  grafana-data:
     driver: local
 
 networks:
