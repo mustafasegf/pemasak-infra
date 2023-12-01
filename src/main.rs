@@ -5,7 +5,8 @@ use pemasak_infra::{
     startup, telemetry,
 };
 use sqlx::postgres::PgPoolOptions;
-use std::{net::TcpListener, process};
+use std::{net::TcpListener, path::Path, process};
+use tokio::fs::OpenOptions;
 
 type Client = hyper::client::Client<HttpConnector, Body>;
 
@@ -65,6 +66,44 @@ async fn main() {
     if let Err(err) = tokio::fs::metadata("/var/run/docker.sock").await {
         tracing::error!(?err, "Failed to access docker socket");
         process::exit(1);
+    }
+
+    // check if git folder exists
+    match tokio::fs::metadata(&config.git.base).await {
+        Err(err) => {
+            tracing::error!(?err, "Failed to access git folder");
+            process::exit(1);
+        }
+        Ok(metadata) => {
+            if !metadata.is_dir() {
+                tracing::error!("Git folder is not a directory");
+                process::exit(1);
+            }
+            if metadata.permissions().readonly() {
+                tracing::error!("Git folder is read-only");
+                process::exit(1);
+            }
+
+            let git_path = Path::new(&config.git.base);
+            let temp_path = git_path.join("temp");
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)
+                .await
+            {
+                Ok(_) => {
+                    // Clean up: remove the temporary file
+                    if let Err(err) = tokio::fs::remove_file(&temp_path).await {
+                        tracing::error!(?err, "Failed to remove temporary file");
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(?err, "Cannot write to the git folder");
+                    process::exit(1);
+                }
+            }
+        }
     }
 
     let (build_queue, build_channel) = BuildQueue::new(config.build.max, pool.clone());
