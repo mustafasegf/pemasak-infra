@@ -1,0 +1,5 @@
+.circle-bg {
+    background-color: #020617;
+    opacity: 1;
+    background-image:  repeating-radial-gradient( circle at 0 0, transparent 0, #020617 18px ), repeating-linear-gradient( #060e2255, #060e22 );
+  } 
