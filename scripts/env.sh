@@ -5,6 +5,7 @@ db_user=$(echo "$json" | jq -r '.database.user')
 db_password=$(echo "$json" | jq -r '.database.password')
 db_port=$(echo "$json" | jq -r '.database.port')
 db_name=$(echo "$json" | jq -r '.database.name')
+application_port=$(echo "$json" | jq -r '.application.port')
 
 # Print Docker Compose and SQLx format
 echo "# for docker compose"
@@ -12,6 +13,7 @@ echo "DB_USER=$db_user"
 echo "DB_PASSWORD=$db_password"
 echo "DB_PORT=$db_port"
 echo "DB_NAME=$db_name"
+echo "APPLICATION_PORT=$application_port"
 
 echo ""
 

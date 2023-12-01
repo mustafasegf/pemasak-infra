@@ -14,6 +14,29 @@ services:
       - pemasak
     ports:
       - "${DB_PORT}:5432"
+  
+  server:
+    container_name: server-pemasak
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${APPLICATION_PORT}:${APPLICATION_PORT}"
+    environment:
+      - "DATABASE_HOST=db"
+      - "DATABASE_PORT=5432"
+      - "APPLICATION_HOST=0.0.0.0"
+      - "GIT_BASE=./git-repo"
+    volumes:
+      - ./configuration.yml:/app/configuration.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./git-repo:/app/git-repo
+      - ./assets:/app/assets
+    depends_on:
+      - db
+    networks:
+      - pemasak
 
   docker-host:
     image: qoomon/docker-host
