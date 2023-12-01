@@ -30,7 +30,7 @@ pub fn base(children: Children) -> impl IntoView {
                     <input id="my-drawer" type="checkbox" class="drawer-toggle" />
                     <div class="drawer-content">
                         <div class="w-full fixed">  
-                            <div class="navbar bg-transparent px-8 py-6 space-x-2 mx-auto xl:max-w-6xl w-full">
+                            <div hx-boost="true" class="navbar bg-transparent px-8 py-6 space-x-2 mx-auto xl:max-w-6xl w-full">
                                 <img class="w-12 h-12" src="/assets/InfraCook.png"></img>
                                 <a href="/dashboard" class="btn btn-ghost normal-case text-xl">InfraCook</a>
                             </div>
