@@ -144,6 +144,7 @@ pub async fn fallback(
                 .unwrap()
         }
         Err(err) => {
+
             tracing::error!(?err, "Can't get subdomain: Failed to query database");
 
             Response::builder()
@@ -165,26 +166,19 @@ pub async fn fallback_middleware(
     uri: axum::http::Uri,
     mut req: Request<Body>,
     next: Next<Body>,
-    // mut req: Request<Body>,
-    // ) -> Response<Body> {
 ) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, Response<Body>> {
     let subdomain = hostname
         .trim_end_matches(domain.as_str())
         .trim_end_matches('.');
 
-    tracing::warn!("subdomain {}", subdomain);
+    tracing::debug!(?hostname, "hostname {}", hostname);
+    tracing::debug!("subdomain {}", subdomain);
 
     if subdomain.is_empty() {
-        tracing::warn!("subdomain is empty");
         return Ok(next.run(req).await);
-        // return Response::builder()
-        //     .status(StatusCode::BAD_REQUEST)
-        //     .body(Body::empty())
-        //     .unwrap();
     }
 
-    tracing::warn!("subdomain {}", subdomain);
-    tracing::error!(?subdomain, "subdomain {} is accessed", subdomain);
+    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
 
     match sqlx::query!(
         r#"SELECT docker_ip, port
@@ -197,7 +191,7 @@ pub async fn fallback_middleware(
     .await
     {
         Ok(Some(route)) => {
-            tracing::warn!(
+            tracing::debug!(
                 ip = route.docker_ip,
                 port = route.port,
                 ?uri,
@@ -219,7 +213,7 @@ pub async fn fallback_middleware(
             }
         }
         Ok(None) => {
-            tracing::warn!(?uri, "route not found {}", uri);
+            tracing::debug!(?uri, "route not found {}", uri);
 
             Err(Response::builder()
                 .status(StatusCode::NOT_FOUND)

@@ -1,23 +1,9 @@
 application:
   port: 8080
-  host: "localhost"
+  host: "0.0.0.0"
+  domain: "localhost"
   bodylimit: "25mib"
-  ipv4: false
-
-auth:
-  sso: true
-  # in hour
-  lifespan: 168
-  cookiename: session
-  # in days
-  maxage: 365
-  httponly: true
-  secure: false
-  # in days
-  maxlifespan: 365
-
-log:
-  dev: true
+  ipv6: false
 
 database:
   user: "postgres"
@@ -30,6 +16,21 @@ database:
 git:
   auth: true
   base: "./git-repo"
+
+log:
+  dev: true
+
+auth:
+  sso: true
+  # in hour
+  lifespan: 168
+  cookiename: session
+  # in days
+  maxage: 365
+  httponly: true
+  secure: false
+  # in days
+  maxlifespan: 365
 
 build:
   max: 2

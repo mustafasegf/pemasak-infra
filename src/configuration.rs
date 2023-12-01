@@ -31,6 +31,7 @@ pub struct BuilderSettings {
 pub struct ApplicationSettings {
     pub port: u16,
     pub host: String,
+    pub domain: String,
     pub bodylimit: String,
     pub ipv6: bool,
 }
@@ -68,8 +69,9 @@ pub struct AuthSettings {
 
 pub fn get_configuration() -> Result<Settings, ConfigError> {
     Config::builder()
-        .set_default("application.host", "localhost")?
         .set_default("application.port", 8080)?
+        .set_default("application.host", "0.0.0.0")?
+        .set_default("application.domain", "localhost")?
         .set_default("application.bodylimit", "25mib")?
         .set_default("application.ipv6", false)?
         .set_default("database.user", "postgres")?
@@ -91,8 +93,9 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default(
             "builder.max",
             available_parallelism()
-                .unwrap_or(NonZeroUsize::new(2).unwrap())
-                .get() as i32,
+                .unwrap_or(NonZeroUsize::new(3).unwrap())
+                .get() as i32
+                - 1,
         )?
         .set_default("builder.cpums", 100000)?
         .add_source(config::File::with_name("configuration"))
@@ -127,8 +130,8 @@ impl Settings {
 
     pub fn domain(&self) -> String {
         match self.application.port {
-            80 | 443 => self.application.host.clone(),
-            _ => format!("{}:{}", self.application.host, self.application.port),
+            80 | 443 => self.application.domain.clone(),
+            _ => format!("{}:{}", self.application.domain, self.application.port),
         }
     }
 
