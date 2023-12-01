@@ -1,21 +1,20 @@
 application:
   port: 8080
   host: "localhost"
-  body_limit: "25mib"
-  secret: "123"
+  bodylimit: "25mib"
   ipv4: false
 
 auth:
   sso: true
   # in hour
   lifespan: 168
-  cookie_name: session
+  cookiename: session
   # in days
-  cookie_max_age: 365
-  cookie_http_only: true
-  cookie_secure: false
+  maxage: 365
+  httponly: true
+  secure: false
   # in days
-  max_lifespan: 365
+  maxlifespan: 365
 
 log:
   dev: true
@@ -30,17 +29,17 @@ database:
 
 git:
   auth: true
-  base: "./src/git-repo"
+  base: "./git-repo"
 
 build:
   max: 2
   # in microseconds (100ms === 1 CPU allocation)
-  cpu_ms: 100000
+  cpums: 100000
   # in miliseconds
-  build_timeout: 120000
+  timeout: 120000
 
 container:
-  cpu_limit: 0.5
+  cpu: 0.5
   # amount of swap = memory_swap - memory_limit
-  memory_limit: 256M
-  memory_swap: 320M
+  memory: 256M
+  swap: 320M
