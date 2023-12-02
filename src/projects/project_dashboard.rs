@@ -8,6 +8,7 @@ use leptos::{view, IntoView};
 use serde::{Serialize, Deserialize};
 
 use crate::components::Base;
+use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
@@ -37,9 +38,6 @@ pub async fn get(
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
-
-    let delete_path = format!("/{owner}/{project}/delete");
-    let volume_path = format!("/{owner}/{project}/volume/delete");
 
     // check if project exist
     let project_record = match sqlx::query!(
@@ -113,49 +111,7 @@ pub async fn get(
     let html = render_to_string(move || {
         view! {
             <Base>
-              <div class="flex items-center justify-between mb-6">
-                <div class="flex flex items-center">
-                    <div class="flex flex-col justify-center space-y-1">
-                        <p class="font-bold text-xl">{&owner}"/"{&project}</p>
-                    </div>
-                </div>
-                <div class="flex space-x-4">
-                    <a href="" hx-boost="true">
-                        <button class="btn btn-sm btn-outline btn-secondary gap-1">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-                          </svg>
-                          Settings
-                        </button>
-                    </a>
-                    <a href={format!("http://{}-{}.{}", &owner, &project, &domain)} target="_blank" rel="noreferrer">
-                      <button class="btn btn-sm btn-outline btn-primary gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"></path></svg>
-                        Open
-                      </button>
-                    </a>
-                </div>
-              </div>
-
-            // TODO: Move this to a separate page accessible by the "Settings" button
-            //   <h2 class="text-xl">
-            //     Project Controls
-            //   </h2>
-            //   <div class="flex w-full space-x-4 items-center mb-8">
-            //     <button
-            //       hx-post={delete_path}
-            //       hx-trigger="click"
-            //       class="btn btn-error mt-4 w-full max-w-xs"
-            //     >Delete Project</button>
-
-            //     <button
-            //       hx-post={volume_path}
-            //       hx-trigger="click"
-            //       class="btn btn-error mt-4 w-full max-w-xs"
-            //     >Delete Database</button>
-            //   </div>
-
-              <div id="result"></div>
+              <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
 
               <h2 class="text-xl">
                 Builds
