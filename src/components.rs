@@ -1,7 +1,11 @@
 use leptos::*;
 
 #[component]
-pub fn base(children: Children) -> impl IntoView {
+pub fn base(
+    children: Children,
+    #[prop(optional)]
+    class: String,
+) -> impl IntoView {
     view! {
         <html data-theme="night">
             <head>
@@ -36,7 +40,7 @@ pub fn base(children: Children) -> impl IntoView {
                                 </a>
                             </div>
                         </div>
-                        <div class="px-8 pt-32 pb-5 flex flex-col xl:mx-auto xl:max-w-6xl w-full min-h-screen">
+                        <div class={"px-8 pt-32 pb-5 flex flex-col xl:mx-auto xl:max-w-6xl w-full min-h-screen ".to_string() + &class}>
                             {children()}
                         </div>
                     </div>
