@@ -129,10 +129,12 @@ impl Settings {
     }
 
     pub fn domain(&self) -> String {
-        match self.application.port {
-            80 | 443 => self.application.domain.clone(),
-            _ => format!("{}:{}", self.application.domain, self.application.port),
-        }
+        self.application.domain.clone()
+
+        // match self.application.port {
+        //     80 | 443 => self.application.domain.clone(),
+        //     _ => format!("{}:{}", self.application.domain, self.application.port),
+        // }
     }
 
     pub fn body_limit(&self) -> usize {

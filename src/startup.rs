@@ -103,6 +103,8 @@ pub async fn fallback(
             .unwrap();
     }
 
+    tracing::debug!(hostname, "hostname {}", hostname);
+    tracing::debug!(domain, "domain {}", domain);
     tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
 
     match sqlx::query!(
@@ -172,8 +174,9 @@ pub async fn fallback_middleware(
         .trim_end_matches(domain.as_str())
         .trim_end_matches('.');
 
-    tracing::debug!(?hostname, "hostname {}", hostname);
-    tracing::debug!("subdomain {}", subdomain);
+    tracing::debug!(hostname, "hostname {}", hostname);
+    tracing::debug!(domain, "domain {}", domain);
+    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
 
     if subdomain.is_empty() {
         return Ok(next.run(req).await);
