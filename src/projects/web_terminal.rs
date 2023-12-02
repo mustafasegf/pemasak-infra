@@ -260,10 +260,11 @@ pub async fn get(Path((owner, project)): Path<(String, String)>, State(AppState 
                 <h2 class="text-xl mb-4">
                     Web Terminal
                 </h2>
-                <div class="bg-gray-800 p-2 mockup-code" hx-ext="ws" ws-connect={ws_path} hx-on="htmx:wsAfterMessage: const data = document.getElementById('data'); data.scrollTop = data.scrollHeight;"> 
+                <div class="bg-neutral/40 backdrop-blur-sm p-2 mockup-code" hx-ext="ws" ws-connect={ws_path} hx-on="htmx:wsAfterMessage: const data = document.getElementById('data'); data.scrollTop = data.scrollHeight;"> 
                     <pre id="data" hx-swap-oob="beforeend" class="flex flex-col gap-1 px-4 max-h-64 overflow-y-auto"></pre>
 
                     <form class="px-4" id="form" ws-send hx-on="
+                        htmx:wsBeforeSend: if (JSON.parse(event?.detail?.message).message === 'clear') document.getElementById('data').innerHTML = '';
                         htmx:wsAfterSend: this.reset();
                     ">
                         <div class="flex space-x-2">

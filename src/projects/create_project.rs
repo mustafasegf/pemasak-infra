@@ -275,7 +275,7 @@ pub async fn post(
     let html = render_to_string(move || {
         view! {
             <h1> Project created successfully  </h1>
-            <div class="p-4 mb-4 bg-gray-800 mockup-code" id="code">
+            <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
                 <pre>
                     <code>
                         git remote add pws {format!(" http://{domain}/{owner}/{project}")}
@@ -304,7 +304,7 @@ pub async fn post(
               Copy to clipboard
             </button>
 
-            <div class="p-4 mb-4 bg-gray-800 mockup-code">
+            <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code">
                 <pre><code>
                   project token: <span id="token">{token} </span>
                 </code></pre>

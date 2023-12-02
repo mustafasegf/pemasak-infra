@@ -154,7 +154,7 @@ pub async fn get(
                                 view! {
                                     <div>
                                         <p class="mb-4">You have not pushed a build to your project, to push an existing project, execute the following command in your project</p>
-                                        <div class="p-4 mb-4 bg-gray-800 mockup-code" id="code">
+                                        <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
                                             <pre>
                                                 <code>
                                                     git remote add pws {format!(" http://{}/{}/{}", domain, owner, project)}

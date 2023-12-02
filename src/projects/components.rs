@@ -12,9 +12,11 @@ pub fn project_header(
     view! {
         <div class="flex items-center justify-between mb-6">
             <div class="flex flex items-center">
-                <div class="flex flex-col justify-center space-y-1">
-                    <p class="font-bold text-xl">{&owner}"/"{&project}</p>
-                </div>
+                <a class="hover:underline" href={format!("/{}/{}", &owner, &project)} hx-boost="true">
+                    <div class="flex flex-col justify-center space-y-1">
+                        <p class="font-bold text-xl">{&owner}"/"{&project}</p>
+                    </div>
+                </a>
             </div>
             <div class="flex space-x-4">
                 <a href={format!("/{}/{}/preferences", &owner, &project)} hx-boost="true">
