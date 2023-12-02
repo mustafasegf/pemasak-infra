@@ -63,6 +63,10 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         )
         .layer(SessionLayer::new(session_store))
         .nest_service("/assets", ServeDir::new("assets"))
+        .route(
+            "/",
+            axum::routing::get(|| async { axum::response::Redirect::temporary("/dashboard") }),
+        )
         .fallback(fallback)
         .with_state(state.clone())
         .route_layer(middleware::from_fn_with_state(state, fallback_middleware))
