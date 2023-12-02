@@ -1,8 +1,9 @@
 /target
 .direnv
 /result
-/git-repo/
+git-repo
 configuration.yml
 configuration.yaml
 .env
 /test
+.vscode
