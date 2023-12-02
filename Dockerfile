@@ -27,4 +27,5 @@ FROM ubuntu:22.04
 WORKDIR /app
 COPY --from=builder /app/target/release/pemasak-infra /app
 RUN apt update && apt install -y libssl-dev ca-certificates git
+RUN apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 CMD ["./pemasak-infra"]
