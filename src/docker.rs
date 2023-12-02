@@ -3,10 +3,7 @@ use std::process::Output;
 
 use anyhow::Result;
 use bollard::{
-    container::{
-        Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
-        StartContainerOptions, StopContainerOptions,
-    },
+    container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
     image::{ListImagesOptions, TagImageOptions},
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
@@ -17,6 +14,7 @@ use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
 };
+use procfile;
 use rand::{Rng, SeedableRng};
 use sqlx::PgPool;
 
@@ -94,17 +92,52 @@ pub async fn build_docker(
     };
     let envs = vec![];
 
-    let Output {
-        status,
-        stderr,
-        stdout: _,
-    } = create_docker_image(container_src, envs, &plan_options, &build_options).await?;
+    // check if Dockerfile exists
 
-    let build_log = String::from_utf8(stderr).unwrap();
+    let (build_log, nixpacks) = match std::path::Path::new(container_src)
+        .join("Dockerfile")
+        .exists()
+    {
+        true => {
+            tracing::debug!(container_name, "Build using dockerfile");
+            // build from Dockerfile
+            match std::process::Command::new("docker")
+                .args(&[
+                    "build",
+                    "-t",
+                    &image_name,
+                    "-f",
+                    &std::path::Path::new(container_src)
+                        .join("Dockerfile")
+                        .to_str()
+                        .unwrap(),
+                    container_src,
+                ])
+                .output()
+            {
+                Ok(output) => (String::from_utf8(output.stderr).unwrap(), false),
+                Err(err) => {
+                    tracing::error!("Failed to build image: {}", err);
+                    return Err(anyhow::anyhow!("Failed to build image: {}", err));
+                }
+            }
+        }
+        false => {
+            tracing::debug!(container_name, "Build using nixpacks");
+            let Output {
+                status,
+                stderr,
+                stdout: _,
+            } = create_docker_image(container_src, envs, &plan_options, &build_options).await?;
 
-    if !status.success() {
-        return Err(anyhow::anyhow!(build_log));
-    }
+            let build_log = String::from_utf8(stderr).unwrap();
+
+            if !status.success() {
+                return Err(anyhow::anyhow!(build_log));
+            }
+            (build_log, true)
+        }
+    };
 
     // check if image exists
     let images = &docker
@@ -139,7 +172,7 @@ pub async fn build_docker(
     // remove container if it exists
     if !containers.is_empty() {
         docker
-            .stop_container(container_name, None::<StopContainerOptions>)
+            .stop_container(container_name, None)
             .await
             .map_err(|err| {
                 tracing::error!("Failed to stop container: {}", err);
@@ -147,10 +180,7 @@ pub async fn build_docker(
             })?;
 
         docker
-            .remove_container(
-                containers.first().unwrap().id.as_ref().unwrap(),
-                None::<RemoveContainerOptions>,
-            )
+            .remove_container(containers.first().unwrap().id.as_ref().unwrap(), None)
             .await
             .map_err(|err| {
                 tracing::error!("Failed to remove container: {}", err);
@@ -305,6 +335,10 @@ pub async fn build_docker(
                     err
                 })?;
 
+            // wait until postgres is ready
+            // TODO: change this into a psql command check
+            std::thread::sleep(std::time::Duration::from_secs(10));
+  
             // connect db container to network
             docker
                 .connect_network(
@@ -348,7 +382,7 @@ pub async fn build_docker(
     // TODO: figure out if we need make this configurable
     let port = 80;
 
-    let config = Config {
+    let mut config = Config {
         image: Some(image_name.clone()),
         // TDDO: rethink if we need to make this configurable
         env: Some(vec![
@@ -366,7 +400,153 @@ pub async fn build_docker(
         ..Default::default()
     };
 
-    let res = &docker
+    // if not nixpacks, we need to read from procfile and use release and web command
+    if !nixpacks {
+        // read procfile
+        let (release, web) =
+            std::fs::read_to_string(std::path::Path::new(container_src).join("Procfile"))
+                .map(|content| {
+                    procfile::parse(&content)
+                        .map_err(|err| {
+                            tracing::error!("Failed to parse Procfile: {}", err);
+                            err
+                        })
+                        .map(|map| {
+                            let web = map.get("web").map(|web| web.to_string());
+                            let release = map.get("release").map(|release| release.to_string());
+                            (release, web)
+                        })
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+
+        tracing::debug!(release = ?release, web = ?web, "Procfile");
+
+        if let Some(release) = release {
+            let config = Config {
+                image: Some(image_name.clone()),
+                env: Some(vec![
+                    "PRODUCTION=true".to_string(),
+                    format!("PORT={}", port),
+                    format!("DATABASE_URL={}", db_url),
+                ]),
+                host_config: Some(HostConfig {
+                    restart_policy: Some(RestartPolicy {
+                        name: Some(RestartPolicyNameEnum::NO),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                // cmd: Some(vec![release]),
+                cmd: Some(release.split(' ').map(|s| s.to_string()).collect()),
+                ..Default::default()
+            };
+            if let Err(err) = docker
+                .create_container(
+                    Some(CreateContainerOptions {
+                        name: container_name.clone(),
+                        platform: None,
+                    }),
+                    config,
+                )
+                .await
+            {
+                tracing::error!("Failed to create container: {}", err);
+                if db_containers.is_empty() {
+                    let _ = docker.stop_container(&db_name, None).await.map_err(|err| {
+                        tracing::error!("Failed to remove container: {}", err);
+                        err
+                    });
+
+                    let _ = docker
+                        .remove_container(&db_name, None)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to remove container: {}", err);
+                            err
+                        });
+
+                    let _ = docker
+                        .remove_volume(&volume_name, None)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to remove volume: {}", err);
+                            err
+                        });
+                }
+
+                return Err(err.into());
+            }
+
+            docker
+                .connect_network(
+                    &network_name,
+                    ConnectNetworkOptions {
+                        container: container_name.clone(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to connect network: {}", err);
+                    err
+                })?;
+
+            if let Err(err) = docker
+                .start_container(container_name, None::<StartContainerOptions<&str>>)
+                .await
+            {
+                tracing::error!("Failed to start container: {}", err);
+
+                if db_containers.is_empty() {
+                    let _ = docker.stop_container(&db_name, None).await.map_err(|err| {
+                        tracing::error!("Failed to remove container: {}", err);
+                        err
+                    });
+
+                    let _ = docker
+                        .remove_container(&db_name, None)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to remove container: {}", err);
+                            err
+                        });
+
+                    let _ = docker
+                        .remove_volume(&volume_name, None)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to remove volume: {}", err);
+                            err
+                        });
+                }
+            }
+
+            // wait until container is stopped
+            let mut i = 0;
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+
+                if let Err(err) = docker.remove_container(container_name, None).await {
+                    tracing::debug!("Failed to remove container. Will try again: {}", err);
+                    i += 1;
+                    if i > 10 {
+                        tracing::error!("Failed to remove container: {}", err);
+                        break;
+                    }
+
+                    continue;
+                }
+                break;
+            }
+        }
+
+        if let Some(web) = web {
+            config.cmd = Some(web.split(' ').map(|s| s.to_string()).collect());
+        }
+    }
+
+    let res = docker
         .create_container(
             Some(CreateContainerOptions {
                 name: container_name.clone(),
@@ -398,7 +578,7 @@ pub async fn build_docker(
         })?;
 
     docker
-        .start_container(container_name, None::<StartContainerOptions<String>>)
+        .start_container(container_name, None::<StartContainerOptions<&str>>)
         .await
         .map_err(|err| {
             tracing::error!("Failed to start container: {}", err);

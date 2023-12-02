@@ -1221,6 +1221,7 @@ dependencies = [
  "lock_api",
  "once_cell",
  "parking_lot_core",
+ "serde",
 ]
 
 [[package]]
@@ -2781,6 +2782,7 @@ dependencies = [
  "leptos",
  "nixpacks",
  "password-hash",
+ "procfile",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -3059,6 +3061,19 @@ dependencies = [
  "syn 2.0.39",
  "version_check",
  "yansi",
+]
+
+[[package]]
+name = "procfile"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a48c28480d50e7fede47046c819aff674f23cb8a616fa6fd6b195a87c302cd92"
+dependencies = [
+ "cfg-if",
+ "dashmap",
+ "lazy_static",
+ "regex",
+ "serde",
 ]
 
 [[package]]

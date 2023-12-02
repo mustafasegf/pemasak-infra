@@ -140,8 +140,6 @@ services:
       # - ./config/loki:/etc/loki
       - loki-data:/loki
 
-
-
 volumes:
   db-data:
     driver: local
