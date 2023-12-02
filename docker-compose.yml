@@ -10,8 +10,9 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    networks:
-      - pemasak
+    network_mode: "host"
+    # networks:
+    #   - pemasak
     ports:
       - "${DB_PORT}:5432"
   
@@ -35,29 +36,32 @@ services:
       - ./assets:/app/assets
     depends_on:
       - db
-    networks:
-      - pemasak
+    network_mode: "host"
+    # networks:
+    #   - pemasak
     logging:
       driver: fluentd
       options:
         fluentd-address: localhost:24224
         tag: docker.server-pemasak
 
-  docker-host:
-    image: qoomon/docker-host
-    container_name: docker-host-pemasak
-    networks:
-      - pemasak
-    cap_add: [ 'NET_ADMIN', 'NET_RAW' ]
-    mem_limit: 8M
-    restart: always
+  # docker-host:
+  #   image: qoomon/docker-host
+  #   container_name: docker-host-pemasak
+  #   network_mode: "host"
+  #   # networks:
+  #   #   - pemasak
+  #   cap_add: [ 'NET_ADMIN', 'NET_RAW' ]
+  #   mem_limit: 8M
+  #   restart: always
 
   prometheus:
     image: prom/prometheus
     container_name: prometheus-pemasak
     restart: always
-    networks:
-      - pemasak
+    network_mode: "host"
+    # networks:
+    #   - pemasak
     ports:
       - "9090:9090"
       
@@ -77,8 +81,8 @@ services:
     image: grafana/grafana
     container_name: grafana-pemasak
     restart: always
-    networks:
-      - pemasak
+    # networks:
+    #   - pemasak
     ports:
       - "3000:3000"
 
@@ -96,8 +100,9 @@ services:
     image: prom/node-exporter:latest
     container_name: node-exporter-pemasak
     restart: always
-    networks:
-      - pemasak
+    network_mode: "host"
+    # networks:
+    #   - pemasak
     command:
       - '--path.procfs=/host/proc'
       - '--path.rootfs=/rootfs'
@@ -113,8 +118,9 @@ services:
     image: grafana/fluent-plugin-loki:main
     container_name: fluentd-pemasak
     restart: always
-    networks:
-      - pemasak
+    network_mode: "host"
+    # networks:
+    #   - pemasak
     ports:
       - "24224:24224"
       - "24224:24224/udp"
@@ -132,8 +138,9 @@ services:
     image: grafana/loki:latest
     container_name: loki-pemasak
     restart: always
-    networks:
-      - pemasak
+    network_mode: "host"
+    # networks:
+    #   - pemasak
     ports:
       - "3100:3100"
     volumes:
