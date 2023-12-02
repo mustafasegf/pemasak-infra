@@ -26,4 +26,5 @@ RUN cargo build --release
 FROM ubuntu:22.04
 WORKDIR /app
 COPY --from=builder /app/target/release/pemasak-infra /app
+RUN apt update && apt install -y libssl-dev ca-certificates git
 CMD ["./pemasak-infra"]
