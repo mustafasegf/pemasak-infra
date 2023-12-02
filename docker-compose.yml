@@ -37,6 +37,11 @@ services:
       - db
     networks:
       - pemasak
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: localhost:24224
+        tag: docker.server-pemasak
 
   docker-host:
     image: qoomon/docker-host
@@ -51,7 +56,6 @@ services:
     image: prom/prometheus
     container_name: prometheus-pemasak
     restart: always
-    # network_mode: host
     networks:
       - pemasak
     ports:
@@ -73,7 +77,6 @@ services:
     image: grafana/grafana
     container_name: grafana-pemasak
     restart: always
-    # network_mode: host
     networks:
       - pemasak
     ports:
@@ -93,7 +96,6 @@ services:
     image: prom/node-exporter:latest
     container_name: node-exporter-pemasak
     restart: always
-    # network_mode: host
     networks:
       - pemasak
     command:
@@ -107,12 +109,47 @@ services:
       - /sys:/host/sys:ro
       - /:/rootfs:ro
 
+  fluentd:
+    image: grafana/fluent-plugin-loki:main
+    container_name: fluentd-pemasak
+    restart: always
+    networks:
+      - pemasak
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    volumes:
+      - ./config/fluentd:/fluentd/etc/
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Needed for journald log ingestion:
+      - /etc/machine-id:/etc/machine-id
+      - /dev/log:/dev/log
+      - /var/run/systemd/journal/:/var/run/systemd/journal/
+    environment:
+      LOKI_URL: http://loki:3100
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki-pemasak
+    restart: always
+    networks:
+      - pemasak
+    ports:
+      - "3100:3100"
+    volumes:
+      # - ./config/loki:/etc/loki
+      - loki-data:/loki
+
+
+
 volumes:
   db-data:
     driver: local
   prom_data:
     driver: local
   grafana-data:
+    driver: local
+  loki-data:
     driver: local
 
 networks:

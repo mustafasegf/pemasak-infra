@@ -7,7 +7,8 @@ datasources:
   access: proxy
   editable: true
   isDefault: true
-  
-    #basicAuth: true
-    #basicAuthUser: chef
-    #basicAuthPassword: "strong-powerful-password"
+
+- name: Loki
+  type: loki
+  access: proxy
+  url: http://loki:3100
