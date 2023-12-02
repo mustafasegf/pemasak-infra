@@ -19,7 +19,7 @@ use std::net::{SocketAddr, TcpListener};
 use crate::auth::User;
 use crate::configuration::Settings;
 use crate::queue::BuildQueueItem;
-use crate::{auth, git, owner, projects, telemetry};
+use crate::{auth, dashboard, git, owner, projects, telemetry};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -44,12 +44,14 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
     let git_router = git::router(state.clone(), &config);
     let auth_router = auth::router(state.clone(), &config).await;
+    let dashboard_router: Router<AppState> = dashboard::router(state.clone(), &config).await;
     let project_router = projects::router(state.clone(), &config).await;
     let owners_router = owner::router(state.clone(), &config).await;
 
     let app = Router::new()
         .merge(git_router)
         .merge(auth_router)
+        .merge(dashboard_router)
         .merge(project_router)
         .merge(owners_router)
         .layer(http_trace)
@@ -144,7 +146,6 @@ pub async fn fallback(
                 .unwrap()
         }
         Err(err) => {
-
             tracing::error!(?err, "Can't get subdomain: Failed to query database");
 
             Response::builder()

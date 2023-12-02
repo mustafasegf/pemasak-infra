@@ -8,3 +8,4 @@ pub mod projects;
 pub mod queue;
 pub mod startup;
 pub mod telemetry;
+pub mod dashboard;

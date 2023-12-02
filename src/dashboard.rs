@@ -1,13 +1,24 @@
+use crate::auth::auth;
 use crate::components::Base;
+use crate::configuration::Settings;
 use crate::{auth::Auth, startup::AppState};
+use axum::routing::get;
+use axum::{Router, middleware};
 use axum::extract::State;
 use axum::response::Response;
+use axum_extra::routing::RouterExt;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView, IntoAttribute};
 
+pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
+    Router::new()
+        .route_with_tsr("/dashboard", get(dashboard_ui))
+        .route_layer(middleware::from_fn(auth))
+}
+
 #[tracing::instrument(skip(auth, pool))]
-pub async fn get(
+pub async fn dashboard_ui(
     auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
 ) -> Response<Body> {
