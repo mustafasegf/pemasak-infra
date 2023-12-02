@@ -39,6 +39,7 @@ lazy_static = "1.4.0"
 leptos = { version = "0.5.1", features = ["ssr", "experimental-islands"] }
 nixpacks = { git = "https://github.com/Meta502/nixpacks" }
 password-hash = "0.5.0"
+procfile = { version = "0.2.1", default-features = false, features = ["serde"] }
 rand = "0.8.5"
 regex = "1.10.1"
 reqwest = { version = "0.11.22", default-features = false, features = ["rustls-tls", "tokio-rustls", "serde_json", "json", "cookies"] }
