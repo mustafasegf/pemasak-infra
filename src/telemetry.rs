@@ -131,6 +131,8 @@ pub fn init_tracing() {
                         tracing_subscriber::fmt::layer()
                             .json()
                             .with_writer(LogRecorder::new().with_max_level(level))
+                            .with_line_number(true)
+                            .with_file(true)
                             .with_ansi(false),
                     )
                     .init();
