@@ -740,9 +740,9 @@ pub async fn login_user_ui(auth: Auth) -> Response<Body> {
             .unwrap();
     }
     let html = render_to_string(|| view! {
-        <Base>
+        <Base class={"!pt-0".to_string()}>
             <form 
-                class="flex flex-col p-12 gap-8 w-full md:w-3/4 bg-slate-900/30 rounded-lg backdrop-blur-sm border border-1 border-slate-700"
+                class="flex flex-col p-12 gap-8 w-full md:w-3/4 mx-auto my-auto bg-slate-900/30 rounded-lg backdrop-blur-sm border border-1 border-slate-700"
                 hx-post="/login" 
                 hx-trigger="submit"
                 >
@@ -751,12 +751,12 @@ pub async fn login_user_ui(auth: Auth) -> Response<Body> {
                 <div class="flex flex-col gap-4">
                     <div class="flex flex-col gap-2">
                     <label for="username">Username</label>
-                    <input type="temt" name="username" id="username" required class="input input-bordered w-full max-w-xs" />
+                    <input type="temt" name="username" id="username" required class="input input-bordered w-full" />
                     </div>
 
                     <div class="flex flex-col gap-2">
                     <label for="password">Password</label>
-                    <input type="password" name="password" id="password" required class="input input-bordered w-full max-w-xs" />
+                    <input type="password" name="password" id="password" required class="input input-bordered w-full" />
                     </div>
                 </div>
                 

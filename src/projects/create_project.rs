@@ -290,16 +290,16 @@ pub async fn post(
             <button
                 class="btn btn-outline btn-secondary mb-4"
                 onclick="
-                let lb = '\\n'
-                if(navigator.userAgent.indexOf('Windows') != -1) {{
-                  lb = '\\r\\n'
-                }}
+                    let lb = '\\n'
+                    if(navigator.userAgent.indexOf('Windows') != -1) {{
+                    lb = '\\r\\n'
+                    }}
 
-                let text = document.getElementById('code').innerText.replaceAll('\n', lb)
-                if ('clipboard' in window.navigator) {{
-                    navigator.clipboard.writeText(text)
-                }}
-            "
+                    let text = document.getElementById('code').innerText.replaceAll('\n', lb)
+                    if ('clipboard' in window.navigator) {{
+                        navigator.clipboard.writeText(text)
+                    }}
+                "
             >
               Copy to clipboard
             </button>
