@@ -640,8 +640,8 @@ pub async fn get_info_refs(
     .await
     {
         Ok(out) => out,
-        Err(e) => {
-            tracing::error!(path, service, ?e, "Failed to run git command: {}", e);
+        Err(err) => {
+            tracing::error!(path, service, ?err, "Failed to run git command: {}", err);
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())
