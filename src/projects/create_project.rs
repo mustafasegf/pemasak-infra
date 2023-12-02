@@ -278,12 +278,12 @@ pub async fn post(
             <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
                 <pre>
                     <code>
-                        git remote add pws {format!(" http://{domain}/{owner}/{project}")}
+                        "git remote add pws" {format!(" http://{domain}/{owner}/{project}")}
                     </code>
                 </pre>
                 <pre>
                     <code>
-                        git push -u pws master
+                        "git push -u pws master"
                     </code>
                 </pre>
             </div>
