@@ -12,7 +12,8 @@ use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
+use std::thread::sleep;
+use std::time::Duration;
 use ulid::Ulid;
 use uuid::Uuid;
 
@@ -264,6 +265,9 @@ pub async fn process_task_poll(
             };
             waiting_set.remove(&build_item.container_name);
 
+            drop(waiting_queue);
+            drop(waiting_set);
+
             {
                 let build_count = Arc::clone(&build_count);
                 let pool = pool.clone();
@@ -282,7 +286,6 @@ pub async fn process_task_poll(
                 });
             }
         }
-        sleep(Duration::from_millis(TASK_POLL_DELAY)).await;
     }
 }
 
