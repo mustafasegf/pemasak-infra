@@ -34,7 +34,7 @@ impl fmt::Display for BuildState {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, .. }): State<AppState>,
+    State(AppState { pool, domain, secure, .. }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
@@ -150,6 +150,11 @@ pub async fn get(
                             }}).collect::<Vec<_>>()
                         },
                         false => {
+                            let protocol = match secure {
+                                true => "https",
+                                false => "http"
+                            };
+                            
                             vec!(
                                 view! {
                                     <div>
@@ -157,7 +162,7 @@ pub async fn get(
                                         <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
                                             <pre>
                                                 <code>
-                                                    "git remote add pws" {format!(" http://{}/{}/{}", domain, owner, project)}
+                                                    "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
                                                 </code>
                                             </pre>
                                             <pre>
