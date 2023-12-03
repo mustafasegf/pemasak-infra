@@ -288,7 +288,7 @@ pub async fn post(
                 </pre>
                 <pre>
                     <code>
-                        "git push -u pws master"
+                        "git push pws master"
                     </code>
                 </pre>
             </div>
