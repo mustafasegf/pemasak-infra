@@ -160,7 +160,7 @@ pub async fn build_docker(
     let containers = docker
         .list_containers(Some(ListContainersOptions::<String> {
             all: true,
-            filters: HashMap::from([("name".to_string(), vec![container_name.to_string()])]),
+            filters: HashMap::from([("name".to_string(), vec![ format!("^{container_name}$") ])]),
             ..Default::default()
         }))
         .await
