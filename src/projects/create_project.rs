@@ -37,7 +37,7 @@ pub struct CreateProjectRequest {
 #[tracing::instrument(skip(pool, base, domain))]
 pub async fn post(
     State(AppState {
-        pool, base, domain, ..
+        pool, base, domain, secure, ..
     }): State<AppState>,
     Form(req): Form<Unvalidated<CreateProjectRequest>>,
 ) -> Response<Body> {
@@ -272,13 +272,18 @@ pub async fn post(
             .unwrap();
     }
 
+    let protocol = match secure {
+        true => "https",
+        false => "http",
+    };
+
     let html = render_to_string(move || {
         view! {
             <h1> Project created successfully  </h1>
             <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
                 <pre>
                     <code>
-                        "git remote add pws" {format!(" http://{domain}/{owner}/{project}")}
+                        "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
                     </code>
                 </pre>
                 <pre>

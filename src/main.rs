@@ -120,6 +120,7 @@ async fn main() {
         domain: config.domain(),
         build_channel,
         pool,
+        secure: config.application.secure,
     };
 
     let addr_string = config.address_string();

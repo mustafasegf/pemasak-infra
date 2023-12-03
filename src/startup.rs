@@ -30,6 +30,7 @@ pub struct AppState {
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
     pub build_channel: Sender<BuildQueueItem>,
+    pub secure: bool,
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
