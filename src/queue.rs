@@ -12,15 +12,12 @@ use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
 use ulid::Ulid;
 use uuid::Uuid;
 
 use crate::docker::{build_docker, DockerContainer};
 
 type ConcurrentMutex<T> = Arc<Mutex<T>>;
-
-const TASK_POLL_DELAY: u64 = 100;
 
 #[derive(Error, Debug)]
 #[error("{message:?}")]
@@ -282,7 +279,6 @@ pub async fn process_task_poll(
                 });
             }
         }
-        sleep(Duration::from_millis(TASK_POLL_DELAY)).await;
     }
 }
 
