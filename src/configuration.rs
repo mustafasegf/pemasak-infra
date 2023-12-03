@@ -71,7 +71,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
     Config::builder()
         .set_default("application.port", 8080)?
         .set_default("application.host", "0.0.0.0")?
-        .set_default("application.domain", "localhost")?
+        .set_default("application.domain", "localhost:8080")?
         .set_default("application.bodylimit", "25mib")?
         .set_default("application.ipv6", false)?
         .set_default("database.user", "postgres")?

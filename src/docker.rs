@@ -338,7 +338,7 @@ pub async fn build_docker(
             // wait until postgres is ready
             // TODO: change this into a psql command check
             std::thread::sleep(std::time::Duration::from_secs(10));
-  
+
             // connect db container to network
             docker
                 .connect_network(
@@ -367,10 +367,112 @@ pub async fn build_docker(
                 "#,
                 project_name
             )
-            .fetch_one(&pool)
+            .fetch_optional(&pool)
             .await
             {
-                Ok(row) => row.db_url.unwrap(),
+                Ok(Some(row)) => row.db_url.unwrap(),
+                Ok(None) => {
+                    // delete database create again
+                    tracing::debug!("No database url found for project {}", project_name);
+
+                    let _ = docker.stop_container(&db_name, None).await.map_err(|err| {
+                        tracing::error!("Failed to remove container: {}", err);
+                        err
+                    });
+
+                    let _ = docker
+                        .remove_container(&db_name, None)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to remove container: {}", err);
+                            err
+                        });
+
+                    let _ = docker
+                        .remove_volume(&volume_name, None)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to remove volume: {}", err);
+                            err
+                        })?;
+
+                    let mut rng = rand::rngs::StdRng::from_entropy();
+                    let username = (0..10)
+                        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+                        .collect::<String>();
+
+                    let password = (0..20)
+                        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+                        .collect::<String>();
+
+                    // create database container
+                    let config = Config {
+                        image: Some("postgres:16.0-alpine3.18".to_string()),
+                        volumes: Some(HashMap::from([(
+                            format!("{volume_name}:/var/lib/postgresql/data"),
+                            HashMap::new(),
+                        )])),
+                        env: Some(vec![
+                            format!("POSTGRES_USER={}", username),
+                            format!("POSTGRES_PASSWORD={}", password),
+                            format!("POSTGRES_DB={}", "postgres"),
+                        ]),
+                        host_config: Some(HostConfig {
+                            restart_policy: Some(RestartPolicy {
+                                name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    };
+
+                    let _res = &docker
+                        .create_container(
+                            Some(CreateContainerOptions {
+                                name: db_name.clone(),
+                                platform: None,
+                            }),
+                            config,
+                        )
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to create container: {}", err);
+                            err
+                        })?;
+
+                    docker
+                        .start_container(&db_name, None::<StartContainerOptions<&str>>)
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to start container: {}", err);
+                            err
+                        })?;
+
+                    // wait until postgres is ready
+                    // TODO: change this into a psql command check
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+
+                    // connect db container to network
+                    docker
+                        .connect_network(
+                            &network_name,
+                            ConnectNetworkOptions {
+                                container: db_name.clone(),
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to connect network: {}", err);
+                            err
+                        })?;
+
+                    format!(
+                        "postgresql://{}:{}@{}:{}/{}",
+                        username, password, db_name, 5432, "postgres"
+                    )
+                }
                 Err(err) => {
                     tracing::error!("Failed to query database: {}", err);
                     return anyhow::Result::Err(err.into());
