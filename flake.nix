@@ -51,19 +51,19 @@
             # nix run .#dev 
             dev = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
-              RUST_LOG=info cargo run
+              RUST_LOG=info LOG_DEV=1 cargo run
             '';
 
             # nix run .#debug 
             debug = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
-              RUST_LOG=debug cargo run
+              RUST_LOG=debug LOG_DEV=1 cargo run
             '';
 
             # nix run .#watch 
             watch = pkgs.writeShellScriptBin "dev" ''
               cd "$(git rev-parse --show-toplevel)"
-              cargo watch -L info -x "run"
+              cargo watch -E LOG_DEV=1 -L info -x "run"
             '';
           };
         devShells.default = craneLib.devShell {
