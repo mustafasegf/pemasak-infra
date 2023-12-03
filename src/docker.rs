@@ -94,6 +94,8 @@ pub async fn build_docker(
 
     // check if Dockerfile exists
 
+    tracing::info!("BUILDING START");
+
     let (build_log, nixpacks) = match std::path::Path::new(container_src)
         .join("Dockerfile")
         .exists()
@@ -131,7 +133,7 @@ pub async fn build_docker(
                 stdout: _,
             } = tokio::task::spawn_blocking(move || {
                 create_docker_image(&container_src, envs, &plan_options, &build_options)
-            }).await?.unwrap();
+            }).await??;
 
             let build_log = String::from_utf8(stderr).unwrap();
 
