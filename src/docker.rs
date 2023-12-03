@@ -126,14 +126,11 @@ pub async fn build_docker(
         }
         false => {
             tracing::debug!(container_name, "Build using nixpacks");
-            let container_src = container_src.to_string();
             let Output {
                 status,
                 stderr,
                 stdout: _,
-            } = tokio::task::spawn_blocking(move || {
-                create_docker_image(&container_src, envs, &plan_options, &build_options)
-            }).await??;
+            } = create_docker_image(container_src, envs, &plan_options, &build_options).await?;
 
             let build_log = String::from_utf8(stderr).unwrap();
 
