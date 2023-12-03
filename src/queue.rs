@@ -279,6 +279,7 @@ pub async fn process_task_poll(
                 });
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
