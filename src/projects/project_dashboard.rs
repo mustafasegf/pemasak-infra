@@ -4,7 +4,7 @@ use axum::extract::{State, Path};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
-use leptos::{view, IntoView};
+use leptos::{view, IntoView, IntoAttribute};
 use serde::{Serialize, Deserialize};
 
 use crate::components::Base;
@@ -121,32 +121,34 @@ pub async fn get(
                     match builds.len() > 0 {
                         true => {
                             builds.into_iter().enumerate().map(|(index, record)| { view!{
-                                <div class="bg-neutral/40 backdrop-blur-sm text-info py-4 px-8 cursor-pointer w-full rounded-lg transition-all outline outline-transparent hover:outline-blue-500">
-                                    {
-                                        let id = record.id.to_string();
-                                        let status = record.status.to_string();
-                                        let created_at = record.created_at;
-                                        view!{
-                                            <a class="text-sm">
-                                                <h2 class="font-bold text-white">
-                                                    <span>{id}</span>
-                                                    {
-                                                        let latest_build = match index == 0 {
-                                                            true => " (LATEST BUILD)",
-                                                            false => ""
-                                                        };
-            
-                                                        view!{
-                                                            <span class="text-info">{latest_build}</span>
+                                <>
+                                    <a hx-boost="true" href={format!("/{}/{}/builds/{}", owner, project, record.id.to_string())} class="bg-neutral/40 backdrop-blur-sm text-info py-4 px-8 cursor-pointer w-full rounded-lg transition-all outline outline-transparent hover:outline-blue-500">
+                                        {
+                                            let id = record.id.to_string();
+                                            let status = record.status.to_string();
+                                            let created_at = record.created_at;
+                                            view!{
+                                                <div class="text-sm">
+                                                    <h2 class="font-bold text-white">
+                                                        <span>{id}</span>
+                                                        {
+                                                            let latest_build = match index == 0 {
+                                                                true => " (LATEST BUILD)",
+                                                                false => ""
+                                                            };
+                
+                                                            view!{
+                                                                <span class="text-info">{latest_build}</span>
+                                                            }
                                                         }
-                                                    }
-                                                </h2>
-                                                <p class="text-sm text-neutral-content">{"Status: "}{status}</p>
-                                                <p class="text-sm text-neutral-content">{"Started at: "}{created_at.to_rfc2822()}</p>
-                                            </a>
+                                                    </h2>
+                                                    <p class="text-sm text-neutral-content">{"Status: "}{status}</p>
+                                                    <p class="text-sm text-neutral-content">{"Started at: "}{created_at.to_rfc2822()}</p>
+                                                </div>
+                                            }
                                         }
-                                    }
-                                </div>
+                                    </a>
+                                </>
                             }}).collect::<Vec<_>>()
                         },
                         false => {
@@ -157,37 +159,39 @@ pub async fn get(
                             
                             vec!(
                                 view! {
-                                    <div>
-                                        <p class="mb-4">You have not pushed a build to your project, to push an existing project, execute the following command in your project</p>
-                                        <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
-                                            <pre>
-                                                <code>
-                                                    "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
-                                                </code>
-                                            </pre>
-                                            <pre>
-                                                <code>
-                                                    {"git push pws master"}
-                                                </code>
-                                            </pre>
+                                    <>
+                                        <div>
+                                            <p class="mb-4">You have not pushed a build to your project, to push an existing project, execute the following command in your project</p>
+                                            <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
+                                                <pre>
+                                                    <code>
+                                                        "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
+                                                    </code>
+                                                </pre>
+                                                <pre>
+                                                    <code>
+                                                        {"git push pws master"}
+                                                    </code>
+                                                </pre>
+                                            </div>
+                                            <button
+                                                class="btn btn-outline btn-secondary mb-4"
+                                                onclick="
+                                                let lb = '\\n'
+                                                if(navigator.userAgent.indexOf('Windows') != -1) {{
+                                                lb = '\\r\\n'
+                                                }}
+                                
+                                                let text = document.getElementById('code').innerText.replaceAll('\\n', lb)
+                                                if ('clipboard' in window.navigator) {{
+                                                    navigator.clipboard.writeText(text)
+                                                }}
+                                            "
+                                            >
+                                            Copy to clipboard
+                                            </button>
                                         </div>
-                                        <button
-                                            class="btn btn-outline btn-secondary mb-4"
-                                            onclick="
-                                            let lb = '\\n'
-                                            if(navigator.userAgent.indexOf('Windows') != -1) {{
-                                            lb = '\\r\\n'
-                                            }}
-                            
-                                            let text = document.getElementById('code').innerText.replaceAll('\\n', lb)
-                                            if ('clipboard' in window.navigator) {{
-                                                navigator.clipboard.writeText(text)
-                                            }}
-                                        "
-                                        >
-                                        Copy to clipboard
-                                        </button>
-                                    </div>
+                                    </>
                                 }
                             )
                         }
