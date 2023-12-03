@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, process::Stdio};
 use std::process::Output;
 
 use anyhow::Result;
@@ -17,6 +17,7 @@ use nixpacks::{
 use procfile;
 use rand::{Rng, SeedableRng};
 use sqlx::PgPool;
+use tokio::process::Command;
 
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -103,8 +104,8 @@ pub async fn build_docker(
         true => {
             tracing::debug!(container_name, "Build using dockerfile");
             // build from Dockerfile
-            match std::process::Command::new("docker")
-                .args(&[
+             let mut cmd = Command::new("docker");
+                cmd.args(&[
                     "build",
                     "-t",
                     &image_name,
@@ -115,12 +116,29 @@ pub async fn build_docker(
                         .unwrap(),
                     container_src,
                 ])
-                .output()
-            {
-                Ok(output) => (String::from_utf8(output.stderr).unwrap(), false),
-                Err(err) => {
-                    tracing::error!("Failed to build image: {}", err);
-                    return Err(anyhow::anyhow!("Failed to build image: {}", err));
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            let child = cmd.spawn().map_err(|err| {
+                tracing::error!("Failed to spawn docker build: {}", err);
+                err
+            })?;
+
+            let output = child.wait_with_output().await.map_err(|err| {
+                tracing::error!("Failed to wait for docker build: {}", err);
+                err
+            })?;
+
+            if !output.status.success() {
+                return Err(anyhow::anyhow!(String::from_utf8(output.stderr).unwrap()));
+            }
+            match output.status.success() {
+                true => (String::from_utf8(output.stderr).unwrap(), false),
+                false => {
+                    tracing::error!("Failed to build image");
+
+                    return Err(anyhow::anyhow!("Failed to build image: {}", String::from_utf8(output.stderr).unwrap()));
                 }
             }
         }
