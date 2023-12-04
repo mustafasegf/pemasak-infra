@@ -5,6 +5,8 @@ pub fn base(
     children: Children,
     #[prop(optional)]
     class: String,
+    #[prop(optional)]
+    is_logged_in: bool,
 ) -> impl IntoView {
     view! {
         <html data-theme="night">
@@ -33,11 +35,17 @@ pub fn base(
                 <div class="drawer circle-bg">
                     <input id="my-drawer" type="checkbox" class="drawer-toggle" />
                     <div class="drawer-content">
-                        <div class="w-full fixed">  
-                            <div hx-boost="true" class="navbar bg-transparent px-8 py-6 space-x-2 mx-auto xl:max-w-6xl w-full">
+                        <div class="w-full fixed z-50">  
+                            <div hx-boost="true" class="navbar bg-transparent backdrop-blur-sm px-8 py-6 space-x-2 mx-auto xl:max-w-6xl w-full justify-between">
                                 <a href="/dashboard" class="btn btn-ghost normal-case text-xl px-0">
                                     <img class="w-12 h-12" src="/assets/InfraCook.png"></img>
                                 </a>
+                                {move || {
+                                    match is_logged_in {
+                                        true => view! { <><a class="btn btn-error btn-outline btn-sm" href="/logout">Sign Out</a></> },
+                                        false => view! { <></> }
+                                    }
+                                }}
                             </div>
                         </div>
                         <div class={"px-8 pt-32 pb-5 flex flex-col xl:mx-auto xl:max-w-6xl w-full min-h-screen ".to_string() + &class}>

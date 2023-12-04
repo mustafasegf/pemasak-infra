@@ -371,7 +371,7 @@ pub async fn get(
 
     let html = render_to_string(move || view! {
         // TODO
-        <Base>
+        <Base is_logged_in={true}>
             <form 
               hx-post="/new" 
               hx-trigger="submit"
