@@ -170,6 +170,11 @@ pub async fn get(
                                                 </pre>
                                                 <pre>
                                                     <code>
+                                                        "git branch -M master" 
+                                                    </code>
+                                                </pre>
+                                                <pre>
+                                                    <code>
                                                         {"git push pws master"}
                                                     </code>
                                                 </pre>
