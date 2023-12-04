@@ -692,7 +692,7 @@ pub async fn project_owner_group_details_ui(
 
             let html = render_to_string(|| {
                 view! {
-                    <Base>
+                    <Base is_logged_in={true}>
                         <h1 class="font-bold text-xl">Owner Group not found</h1>
                         <h2>Please ensure that you have permission to access the Owner Group.</h2>
                         <a href="/owner">
@@ -727,7 +727,7 @@ pub async fn project_owner_group_details_ui(
 
             let html = render_to_string(|| {
                 view! {
-                    <Base>
+                    <Base is_logged_in={true}>
                         <h1 class="font-bold text-xl">Owner Group not found</h1>
                         <h2>Please ensure that you have permission to access the Owner Group.</h2>
                         <a href="/owner">Go Back To Owner Dashboard</a>
@@ -774,7 +774,7 @@ pub async fn project_owner_group_details_ui(
 
             let html = render_to_string(|| {
                 view! {
-                    <Base>
+                    <Base is_logged_in={true}>
                         <h1 class="text-2xl">An error occurred while fetching this Owner Group</h1>
                         <h2 class="text-base-content">Please try again later.</h2>
                     </Base>
@@ -795,7 +795,7 @@ pub async fn project_owner_group_details_ui(
         let id = owner_group.id;
 
         view! {
-            <Base>
+            <Base is_logged_in={true}>
                 <div class="flex justify-between items-center bg-neutral rounded-lg p-8 mb-4">
                     <div>
                         <h1 class="text-3xl font-bold">{name}</h1>
@@ -888,7 +888,7 @@ pub async fn project_owner_group_list_ui(
 
     let html = render_to_string(|| {
         view! {
-            <Base>
+            <Base is_logged_in={true}>
                 <h1 class="text-2xl font-bold mb-4">Your Owner Groups</h1>
                 <div hx-boost="true" class="flex flex-col gap-4">
                     {owner_groups.into_iter().map(|record|{ view!{ 

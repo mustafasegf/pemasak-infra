@@ -254,7 +254,7 @@ pub async fn get(Path((owner, project)): Path<(String, String)>, State(AppState 
     let ws_path = format!("/{owner}/{project}/terminal/ws");
     let html = render_to_string(move || {
         view! {
-            <Base>
+            <Base is_logged_in={true}>
                 <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
 
                 <h2 class="text-xl mb-4">

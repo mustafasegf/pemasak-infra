@@ -94,7 +94,7 @@ pub async fn dashboard_ui(
 
     let html = render_to_string(move || {
         view! {
-            <Base>
+            <Base is_logged_in={true}>
                 <div class="flex items-center justify-between mb-6">
                     <details class="dropdown">
                         <summary class="btn btn-lg px-0 text-left bg-transparent hover:bg-transparent hover:outline-none hover:border-none">                            

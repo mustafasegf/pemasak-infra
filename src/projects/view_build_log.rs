@@ -59,7 +59,7 @@ pub async fn get(
         Ok(None) => {
             let html = render_to_string(move || {
                 view! {
-                    <Base>
+                    <Base is_logged_in={true}>
                         <h1> Project does not exist </h1>
                     </Base>
                 }
@@ -111,7 +111,7 @@ pub async fn get(
 
     let html = render_to_string(move || {
         view! {
-            <Base>
+            <Base is_logged_in={true}>
               <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
 
               <h2 class="text-xl">
