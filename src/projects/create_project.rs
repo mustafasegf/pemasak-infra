@@ -36,11 +36,12 @@ pub struct CreateProjectRequest {
 
 #[tracing::instrument(skip(pool, base, domain))]
 pub async fn post(
+    auth: Auth,
     State(AppState {
         pool, base, domain, secure, ..
     }): State<AppState>,
     Form(req): Form<Unvalidated<CreateProjectRequest>>,
-) -> Response<Body> {
+) -> Response<Body> {    
     let CreateProjectRequest { owner, project } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
@@ -277,13 +278,20 @@ pub async fn post(
         false => "http",
     };
 
+    let username = auth.current_user.unwrap().username;
+
     let html = render_to_string(move || {
         view! {
             <h1> Project created successfully  </h1>
-            <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
+            <div class="p-4 mt-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
                 <pre>
                     <code>
                         "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
+                    </code>
+                </pre>
+                <pre>
+                    <code>
+                        "git branch -M master" 
                     </code>
                 </pre>
                 <pre>
@@ -293,14 +301,14 @@ pub async fn post(
                 </pre>
             </div>
             <button
-                class="btn btn-outline btn-secondary mb-4"
+                class="btn btn-outline btn-secondary mt-4"
                 onclick="
                     let lb = '\\n'
                     if(navigator.userAgent.indexOf('Windows') != -1) {{
                     lb = '\\r\\n'
                     }}
 
-                    let text = document.getElementById('code').innerText.replaceAll('\n', lb)
+                    let text = document.getElementById('code').innerText.replaceAll('\\n', lb)
                     if ('clipboard' in window.navigator) {{
                         navigator.clipboard.writeText(text)
                     }}
@@ -309,15 +317,28 @@ pub async fn post(
               Copy to clipboard
             </button>
 
-            <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code">
+            <div role="alert" class="alert alert-error mt-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span>MAKE SURE TO COPY THE CREDENTIAL BELOW AS YOU WILL NOT BE ABLE TO ACCESS IT AGAIN</span>
+            </div>
+
+            <div class="p-4 mt-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="token">
                 <pre><code>
-                  project token: <span id="token">{token} </span>
+                  {"Username: "}{username}
+                </code></pre>
+                <pre><code>
+                  {"Password: "}{token}
                 </code></pre>
             </div>
             <button
-                class="btn btn-outline btn-secondary"
+                class="btn btn-outline btn-secondary mt-4"
                 onclick="
-                let text = document.getElementById('token').innerText
+                let lb = '\\n'
+                if(navigator.userAgent.indexOf('Windows') != -1) {{
+                lb = '\\r\\n'
+                }}
+
+                let text = document.getElementById('token').innerText.replaceAll('\\n', lb)
                 if ('clipboard' in window.navigator) {{
                     navigator.clipboard.writeText(text)
                 }}"
