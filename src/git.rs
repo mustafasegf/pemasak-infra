@@ -395,6 +395,19 @@ pub async fn recieve_pack_rpc(
     let head_dir = format!("{path}/refs/heads");
 
     let res = service_rpc("receive-pack", &path, headers, body).await;
+    if res.status() != StatusCode::OK {
+        return res;
+    }
+    if res
+        .headers()
+        .get("Content-Length")
+        .and_then(|k| k.to_str().ok())
+        .and_then(|k| k.eq("0").then_some(()))
+        .is_some()
+    {
+        return res;
+    }
+
     let container_src = format!("{path}/master");
     let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
 
@@ -541,6 +554,18 @@ pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes)
         _ => body,
     };
 
+    tracing::warn!("body: {:?}", body);
+
+    if body == b"0000".as_slice() {
+        response
+            .headers_mut()
+            .insert("Vary", "Accept-Encoding".parse().unwrap());
+        response
+            .headers_mut()
+            .insert("Content-Length", "0".parse().unwrap());
+        return response;
+    }
+
     let env = match headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
         Some("version=2") => ("GIT_PROTOCOL".to_string(), "version=2".to_string()),
         _ => ("".to_string(), "".to_string()),
@@ -658,6 +683,8 @@ pub async fn get_info_refs(
             "Content-Type",
             format!("application/x-git-{service}-advertisement"),
         )
+        .header("Vary", "Accept-Encoding")
+        .header("Accept-Encoding", "Chunked")
         .body(Body::from(body))
         .unwrap()
 }
