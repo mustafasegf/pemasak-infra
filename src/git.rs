@@ -554,8 +554,6 @@ pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes)
         _ => body,
     };
 
-    tracing::warn!("body: {:?}", body);
-
     if body == b"0000".as_slice() {
         response
             .headers_mut()
