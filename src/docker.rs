@@ -4,7 +4,7 @@ use std::{collections::HashMap, process::Stdio};
 
 use anyhow::Result;
 use bollard::container::WaitContainerOptions;
-use bollard::service::{HealthConfig, HealthStatusEnum};
+use bollard::service::{HealthConfig, HealthStatusEnum, Network};
 use bollard::{
     container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
     image::{ListImagesOptions, TagImageOptions},
@@ -50,56 +50,9 @@ pub async fn build_docker(
         err
     })?;
 
-    // check if image exists
-    let images = &docker
-        .list_images(Some(ListImagesOptions::<String> {
-            all: false,
-            filters: HashMap::from([("reference".to_string(), vec![image_name.to_string()])]),
-            ..Default::default()
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list images: {}", err);
-            err
-        })?;
+    remove_old_image(&docker, &image_name, &container_name).await?;
 
-    // remove image if it exists
-    if let Some(_image) = images.first() {
-        let tag_options = TagImageOptions {
-            tag: "old",
-            repo: container_name,
-        };
-
-        docker
-            .tag_image(container_name, Some(tag_options))
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to tag image: {}", err);
-                err
-            })?;
-
-        docker
-            .remove_image(&image_name, None, None)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to remove image: {}", err);
-                err
-            })?;
-    };
-
-    // build image
-    let plan_options = GeneratePlanOptions::default();
-    let build_options = DockerBuilderOptions {
-        name: Some(container_name.to_string()),
-        quiet: false,
-        verbose: true,
-        ..Default::default()
-    };
-    let envs = vec![];
-
-    // check if Dockerfile exists
-
-    tracing::info!("BUILDING START");
+    tracing::info!("Start building {}", container_name);
 
     let (build_log, nixpacks) = match std::path::Path::new(container_src)
         .join("Dockerfile")
@@ -107,50 +60,20 @@ pub async fn build_docker(
     {
         true => {
             tracing::debug!(container_name, "Build using dockerfile");
-            // build from Dockerfile
-            let mut cmd = Command::new("docker");
-            cmd.args(&[
-                "build",
-                "-t",
-                &image_name,
-                "-f",
-                &std::path::Path::new(container_src)
-                    .join("Dockerfile")
-                    .to_str()
-                    .unwrap(),
-                container_src,
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-            let child = cmd.spawn().map_err(|err| {
-                tracing::error!("Failed to spawn docker build: {}", err);
-                err
-            })?;
-
-            let output = child.wait_with_output().await.map_err(|err| {
-                tracing::error!("Failed to wait for docker build: {}", err);
-                err
-            })?;
-
-            if !output.status.success() {
-                return Err(anyhow::anyhow!(String::from_utf8(output.stderr).unwrap()));
-            }
-            match output.status.success() {
-                true => (String::from_utf8(output.stderr).unwrap(), false),
-                false => {
-                    tracing::error!("Failed to build image");
-
-                    return Err(anyhow::anyhow!(
-                        "Failed to build image: {}",
-                        String::from_utf8(output.stderr).unwrap()
-                    ));
-                }
-            }
+            build_dockerfile(container_src, &image_name).await?
         }
         false => {
             tracing::debug!(container_name, "Build using nixpacks");
+
+            let plan_options = GeneratePlanOptions::default();
+            let build_options = DockerBuilderOptions {
+                name: Some(container_name.to_string()),
+                quiet: false,
+                verbose: true,
+                ..Default::default()
+            };
+            let envs = vec![];
+
             let Output {
                 status,
                 stderr,
@@ -166,6 +89,7 @@ pub async fn build_docker(
         }
     };
 
+    // TODO: use docker inspect
     // check if image exists
     let images = &docker
         .list_images(Some(ListImagesOptions::<String> {
@@ -179,7 +103,7 @@ pub async fn build_docker(
             err
         })?;
 
-    let _image = images.first().ok_or(anyhow::anyhow!("No image found"))?;
+    images.first().ok_or(anyhow::anyhow!("No image found"))?;
 
     // check if container exists
     let containers = docker
@@ -198,29 +122,7 @@ pub async fn build_docker(
 
     // remove container if it exists
     if !containers.is_empty() {
-        docker
-            .stop_container(container_name, None)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to stop container: {}", err);
-                err
-            })?;
-
-        if let Err(err) = docker
-            .wait_container(container_name, None::<WaitContainerOptions<String>>)
-            .try_collect::<Vec<_>>()
-            .await
-        {
-            tracing::error!(?err, "Container Stoped Have Error: {}", err);
-        }
-
-        docker
-            .remove_container(containers.first().unwrap().id.as_ref().unwrap(), None)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to remove container: {}", err);
-                err
-            })?;
+        remove_container(&docker, &container_name).await?;
 
         docker
             .remove_image(&old_image_name, None, None)
@@ -258,47 +160,6 @@ pub async fn build_docker(
         .volumes
         .unwrap_or_default();
 
-    // check if network exists
-    let network = docker
-        .list_networks(Some(ListNetworksOptions {
-            filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list networks: {}", err);
-            err
-        })?
-        .first()
-        .map(|n| n.to_owned());
-
-    // create network if it doesn't exist
-    let network = match network {
-        Some(n) => {
-            tracing::info!("Existing network id -> {:?}", n.id);
-            n
-        }
-        None => {
-            let options = bollard::network::CreateNetworkOptions {
-                name: network_name.clone(),
-                ..Default::default()
-            };
-            let res = docker.create_network(options).await.map_err(|err| {
-                tracing::error!("Failed to create network: {}", err);
-                err
-            })?;
-            tracing::info!("create network response-> {:#?}", res);
-
-            docker
-                .list_networks(Some(ListNetworksOptions {
-                    filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
-                }))
-                .await?
-                .first()
-                .map(|n| n.to_owned())
-                .ok_or(anyhow::anyhow!("No network found after make one???"))?
-        }
-    };
-
     // create volume if it doesn't exist
     if volumes.is_empty() {
         let res = docker
@@ -314,117 +175,11 @@ pub async fn build_docker(
         tracing::info!("create volume response-> {:#?}", res);
     }
 
+    let network = create_network(&docker, &network_name).await?;
+
     // create database container if it doesn't exist
     let db_url = match db_containers.is_empty() {
-        true => {
-            let mut rng = rand::rngs::StdRng::from_entropy();
-            let username = (0..10)
-                .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
-                .collect::<String>();
-
-            let password = (0..20)
-                .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
-                .collect::<String>();
-
-            // create database container
-            let config = Config {
-                image: Some("postgres:16.0-alpine3.18".to_string()),
-                volumes: Some(HashMap::from([(
-                    format!("{volume_name}:/var/lib/postgresql/data"),
-                    HashMap::new(),
-                )])),
-                env: Some(vec![
-                    format!("POSTGRES_USER={}", username),
-                    format!("POSTGRES_PASSWORD={}", password),
-                    format!("POSTGRES_DB={}", "postgres"),
-                ]),
-                host_config: Some(HostConfig {
-                    restart_policy: Some(RestartPolicy {
-                        name: Some(RestartPolicyNameEnum::ON_FAILURE),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }),
-                healthcheck: Some(HealthConfig {
-                    test: Some(vec![
-                        "CMD-SHELL".to_string(),
-                        "pg_isready -U postgres".to_string(),
-                    ]),
-                    interval: Some(Duration::from_secs(5).as_nanos() as i64),
-                    timeout: Some(Duration::from_secs(5).as_nanos() as i64),
-                    retries: Some(10),
-                    start_period: Some(Duration::from_secs(5).as_nanos() as i64),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
-
-            let _res = &docker
-                .create_container(
-                    Some(CreateContainerOptions {
-                        name: db_name.clone(),
-                        platform: None,
-                    }),
-                    config,
-                )
-                .await
-                .map_err(|err| {
-                    tracing::error!("Failed to create container: {}", err);
-                    err
-                })?;
-
-            docker
-                .start_container(&db_name, None::<StartContainerOptions<&str>>)
-                .await
-                .map_err(|err| {
-                    tracing::error!("Failed to start container: {}", err);
-                    err
-                })?;
-
-            // wait until postgres is ready
-
-            loop {
-                std::thread::sleep(Duration::from_secs(2));
-
-                match docker.inspect_container(&db_name, None).await {
-                    Err(err) => {
-                        tracing::debug!("Failed to inspect container. Will try again: {}", err);
-                        continue;
-                    }
-                    Ok(container) => {
-                        if container
-                            .state
-                            .and_then(|state| state.health)
-                            .and_then(|health| health.status)
-                            .and_then(|status| status.eq(&HealthStatusEnum::HEALTHY).then_some(()))
-                            .is_some()
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // connect db container to network
-            docker
-                .connect_network(
-                    &network_name,
-                    ConnectNetworkOptions {
-                        container: db_name.clone(),
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map_err(|err| {
-                    tracing::error!("Failed to connect network: {}", err);
-                    err
-                })?;
-
-            format!(
-                "postgresql://{}:{}@{}:{}/{}",
-                username, password, db_name, 5432, "postgres"
-            )
-        }
+        true => create_db(&docker, &db_name, &volume_name, &network_name).await?,
         false => {
             match sqlx::query!(
                 r#"SELECT db_url FROM domains
@@ -438,141 +193,12 @@ pub async fn build_docker(
             {
                 Ok(Some(row)) => row.db_url.unwrap(),
                 Ok(None) => {
-                    // delete database create again
+                    // delete database and create again
                     tracing::debug!("No database url found for project {}", project_name);
 
-                    let _ = docker.stop_container(&db_name, None).await.map_err(|err| {
-                        tracing::error!("Failed to remove container: {}", err);
-                        err
-                    });
-
-                    let _ = docker
-                        .remove_container(&db_name, None)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to remove container: {}", err);
-                            err
-                        });
-
-                    let _ = docker
-                        .remove_volume(&volume_name, None)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to remove volume: {}", err);
-                            err
-                        })?;
-
-                    let mut rng = rand::rngs::StdRng::from_entropy();
-                    let username = (0..10)
-                        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
-                        .collect::<String>();
-
-                    let password = (0..20)
-                        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
-                        .collect::<String>();
-
-                    // create database container
-                    let config = Config {
-                        image: Some("postgres:16.0-alpine3.18".to_string()),
-                        volumes: Some(HashMap::from([(
-                            format!("{volume_name}:/var/lib/postgresql/data"),
-                            HashMap::new(),
-                        )])),
-                        env: Some(vec![
-                            format!("POSTGRES_USER={}", username),
-                            format!("POSTGRES_PASSWORD={}", password),
-                            format!("POSTGRES_DB={}", "postgres"),
-                        ]),
-                        host_config: Some(HostConfig {
-                            restart_policy: Some(RestartPolicy {
-                                name: Some(RestartPolicyNameEnum::ON_FAILURE),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        }),
-                        healthcheck: Some(HealthConfig {
-                            test: Some(vec![
-                                "CMD-SHELL".to_string(),
-                                "pg_isready -U postgres".to_string(),
-                            ]),
-                            interval: Some(Duration::from_secs(5).as_nanos() as i64),
-                            timeout: Some(Duration::from_secs(5).as_nanos() as i64),
-                            retries: Some(10),
-                            start_period: Some(Duration::from_secs(5).as_nanos() as i64),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    };
-
-                    let _res = &docker
-                        .create_container(
-                            Some(CreateContainerOptions {
-                                name: db_name.clone(),
-                                platform: None,
-                            }),
-                            config,
-                        )
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to create container: {}", err);
-                            err
-                        })?;
-
-                    docker
-                        .start_container(&db_name, None::<StartContainerOptions<&str>>)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to start container: {}", err);
-                            err
-                        })?;
-
-                    // wait until postgres is ready
-                    loop {
-                        std::thread::sleep(Duration::from_secs(2));
-
-                        match docker.inspect_container(&db_name, None).await {
-                            Err(err) => {
-                                tracing::debug!(
-                                    "Failed to inspect container. Will try again: {}",
-                                    err
-                                );
-                                continue;
-                            }
-                            Ok(container) => {
-                                if container
-                                    .state
-                                    .and_then(|state| state.health)
-                                    .and_then(|health| health.status)
-                                    .and_then(|status| {
-                                        status.eq(&HealthStatusEnum::HEALTHY).then_some(())
-                                    })
-                                    .is_some()
-                                {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    // connect db container to network
-                    docker
-                        .connect_network(
-                            &network_name,
-                            ConnectNetworkOptions {
-                                container: db_name.clone(),
-                                ..Default::default()
-                            },
-                        )
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to connect network: {}", err);
-                            err
-                        })?;
-
-                    format!(
-                        "postgresql://{}:{}@{}:{}/{}",
-                        username, password, db_name, 5432, "postgres"
-                    )
+                    remove_container(&docker, &db_name).await?;
+                    remove_volume(&docker, &volume_name).await?;
+                    create_db(&docker, &db_name, &volume_name, &network_name).await?
                 }
                 Err(err) => {
                     tracing::error!("Failed to query database: {}", err);
@@ -640,10 +266,10 @@ pub async fn build_docker(
                     }),
                     ..Default::default()
                 }),
-                // cmd: Some(vec![release]),
                 cmd: Some(release.split(' ').map(|s| s.to_string()).collect()),
                 ..Default::default()
             };
+
             if let Err(err) = docker
                 .create_container(
                     Some(CreateContainerOptions {
@@ -656,26 +282,8 @@ pub async fn build_docker(
             {
                 tracing::error!("Failed to create container: {}", err);
                 if db_containers.is_empty() {
-                    let _ = docker.stop_container(&db_name, None).await.map_err(|err| {
-                        tracing::error!("Failed to remove container: {}", err);
-                        err
-                    });
-
-                    let _ = docker
-                        .remove_container(&db_name, None)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to remove container: {}", err);
-                            err
-                        });
-
-                    let _ = docker
-                        .remove_volume(&volume_name, None)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to remove volume: {}", err);
-                            err
-                        });
+                    remove_container(&docker, &db_name).await?;
+                    remove_volume(&docker, &volume_name).await?;
                 }
 
                 return Err(err.into());
@@ -702,26 +310,8 @@ pub async fn build_docker(
                 tracing::error!("Failed to start container: {}", err);
 
                 if db_containers.is_empty() {
-                    let _ = docker.stop_container(&db_name, None).await.map_err(|err| {
-                        tracing::error!("Failed to remove container: {}", err);
-                        err
-                    });
-
-                    let _ = docker
-                        .remove_container(&db_name, None)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to remove container: {}", err);
-                            err
-                        });
-
-                    let _ = docker
-                        .remove_volume(&volume_name, None)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!("Failed to remove volume: {}", err);
-                            err
-                        });
+                    remove_container(&docker, &db_name).await?;
+                    remove_volume(&docker, &volume_name).await?;
                 }
             }
 
@@ -829,4 +419,301 @@ pub async fn build_docker(
         build_log,
         db_url,
     })
+}
+
+async fn remove_old_image(
+    docker: &Docker,
+    container_name: &str,
+    image_name: &str,
+) -> Result<(), bollard::errors::Error> {
+    // TODO: use inspect
+    // check if image exists
+    let images = &docker
+        .list_images(Some(ListImagesOptions::<String> {
+            all: false,
+            filters: HashMap::from([("reference".to_string(), vec![image_name.to_string()])]),
+            ..Default::default()
+        }))
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to list images: {}", err);
+            err
+        })?;
+
+    // remove image if it exists
+    if let Some(_image) = images.first() {
+        let tag_options = TagImageOptions {
+            tag: "old",
+            repo: container_name,
+        };
+
+        docker
+            .tag_image(container_name, Some(tag_options))
+            .await
+            .map_err(|err| {
+                tracing::error!("Failed to tag image: {}", err);
+                err
+            })?;
+
+        docker
+            .remove_image(&image_name, None, None)
+            .await
+            .map_err(|err| {
+                tracing::error!("Failed to remove image: {}", err);
+                err
+            })?;
+    };
+    Ok(())
+}
+
+pub async fn build_dockerfile(container_src: &str, image_name: &str) -> Result<(String, bool)> {
+    // build from Dockerfile
+    let mut cmd = Command::new("docker");
+    cmd.args(&[
+        "build",
+        "-t",
+        &image_name,
+        "-f",
+        &std::path::Path::new(container_src)
+            .join("Dockerfile")
+            .to_str()
+            .unwrap(),
+        container_src,
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+
+    let child = cmd.spawn().map_err(|err| {
+        tracing::error!("Failed to spawn docker build: {}", err);
+        err
+    })?;
+
+    let output = child.wait_with_output().await.map_err(|err| {
+        tracing::error!("Failed to wait for docker build: {}", err);
+        err
+    })?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(String::from_utf8(output.stderr).unwrap()));
+    }
+    match output.status.success() {
+        true => Ok((String::from_utf8(output.stderr).unwrap(), false)),
+        false => {
+            tracing::error!("Failed to build image");
+
+            return Err(anyhow::anyhow!(
+                "Failed to build image: {}",
+                String::from_utf8(output.stderr).unwrap()
+            ));
+        }
+    }
+}
+
+pub async fn remove_container(
+    docker: &Docker,
+    container_name: &str,
+) -> Result<(), bollard::errors::Error> {
+    docker
+        .stop_container(container_name, None)
+        .await
+        .map_err(|err| {
+            tracing::error!(?err, "Failed to stop container: {}", err);
+            err
+        })?;
+
+    if let Err(err) = docker
+        .wait_container(container_name, None::<WaitContainerOptions<&str>>)
+        .try_collect::<Vec<_>>()
+        .await
+    {
+        tracing::warn!(
+            ?err,
+            "Container {} Stoped Have Error: {}",
+            container_name,
+            err
+        );
+    }
+
+    docker
+        .remove_container(container_name, None)
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to remove container: {}", err);
+            err
+        })?;
+    Ok(())
+}
+
+pub async fn remove_volume(
+    docker: &Docker,
+    volume_name: &str,
+) -> Result<(), bollard::errors::Error> {
+    docker
+        .remove_volume(volume_name, None)
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to remove volume: {}", err);
+            err
+        })?;
+    Ok(())
+}
+
+pub async fn create_network(docker: &Docker, network_name: &str) -> Result<Network> {
+    // check if network exists
+    let network = docker
+        .list_networks(Some(ListNetworksOptions {
+            filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
+        }))
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to list networks: {}", err);
+            err
+        })?
+        .first()
+        .map(|n| n.to_owned());
+
+    // create network if it doesn't exist
+    match network {
+        Some(network) => {
+            tracing::info!(id = ?network.id, "Use existing network id {:?}", network.id);
+            Ok(network)
+        }
+        None => {
+            let options = bollard::network::CreateNetworkOptions {
+                name: network_name.clone(),
+                ..Default::default()
+            };
+            let res = docker.create_network(options).await.map_err(|err| {
+                tracing::error!("Failed to create network: {}", err);
+                err
+            })?;
+            tracing::info!("create network response-> {:#?}", res);
+
+            let network = docker
+                .list_networks(Some(ListNetworksOptions {
+                    filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
+                }))
+                .await?
+                .first()
+                .map(|n| n.to_owned())
+                .ok_or(anyhow::anyhow!("No network found after make one???"))?;
+            Ok(network)
+        }
+    }
+}
+
+pub async fn create_db(
+    docker: &Docker,
+    db_name: &str,
+    volume_name: &str,
+    network_name: &str,
+) -> Result<String> {
+    let mut rng = rand::rngs::StdRng::from_entropy();
+    let username = (0..10)
+        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .collect::<String>();
+
+    let password = (0..20)
+        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .collect::<String>();
+
+    // create database container
+    let config = Config {
+        image: Some("postgres:16.0-alpine3.18".to_string()),
+        volumes: Some(HashMap::from([(
+            format!("{volume_name}:/var/lib/postgresql/data"),
+            HashMap::new(),
+        )])),
+        env: Some(vec![
+            format!("POSTGRES_USER={}", username),
+            format!("POSTGRES_PASSWORD={}", password),
+            format!("POSTGRES_DB={}", "postgres"),
+        ]),
+        host_config: Some(HostConfig {
+            restart_policy: Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+        healthcheck: Some(HealthConfig {
+            test: Some(vec![
+                "CMD-SHELL".to_string(),
+                "pg_isready -U postgres".to_string(),
+            ]),
+            interval: Some(Duration::from_secs(5).as_nanos() as i64),
+            timeout: Some(Duration::from_secs(5).as_nanos() as i64),
+            retries: Some(10),
+            start_period: Some(Duration::from_secs(5).as_nanos() as i64),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    docker
+        .create_container(
+            Some(CreateContainerOptions {
+                name: db_name.clone(),
+                platform: None,
+            }),
+            config,
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to create container: {}", err);
+            err
+        })?;
+
+    docker
+        .start_container(&db_name, None::<StartContainerOptions<&str>>)
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to start container: {}", err);
+            err
+        })?;
+
+    // wait until postgres is ready
+
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+
+        match docker.inspect_container(&db_name, None).await {
+            Err(err) => {
+                tracing::debug!("Failed to inspect container. Will try again: {}", err);
+                continue;
+            }
+            Ok(container) => {
+                if container
+                    .state
+                    .and_then(|state| state.health)
+                    .and_then(|health| health.status)
+                    .and_then(|status| status.eq(&HealthStatusEnum::HEALTHY).then_some(()))
+                    .is_some()
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    // connect db container to network
+    docker
+        .connect_network(
+            &network_name,
+            ConnectNetworkOptions {
+                container: db_name.clone(),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to connect network: {}", err);
+            err
+        })?;
+
+    Ok(format!(
+        "postgresql://{}:{}@{}:{}/{}",
+        username, password, db_name, 5432, "postgres"
+    ))
 }
