@@ -1,7 +1,10 @@
-use std::{collections::HashMap, process::Stdio};
 use std::process::Output;
+use std::time::Duration;
+use std::{collections::HashMap, process::Stdio};
 
 use anyhow::Result;
+use bollard::container::WaitContainerOptions;
+use bollard::service::{HealthConfig, HealthStatusEnum};
 use bollard::{
     container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
     image::{ListImagesOptions, TagImageOptions},
@@ -10,6 +13,7 @@ use bollard::{
     volume::{CreateVolumeOptions, ListVolumesOptions},
     Docker,
 };
+use futures_util::TryStreamExt;
 use nixpacks::{
     create_docker_image,
     nixpacks::{builder::docker::DockerBuilderOptions, plan::generator::GeneratePlanOptions},
@@ -104,21 +108,21 @@ pub async fn build_docker(
         true => {
             tracing::debug!(container_name, "Build using dockerfile");
             // build from Dockerfile
-             let mut cmd = Command::new("docker");
-                cmd.args(&[
-                    "build",
-                    "-t",
-                    &image_name,
-                    "-f",
-                    &std::path::Path::new(container_src)
-                        .join("Dockerfile")
-                        .to_str()
-                        .unwrap(),
-                    container_src,
-                ])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+            let mut cmd = Command::new("docker");
+            cmd.args(&[
+                "build",
+                "-t",
+                &image_name,
+                "-f",
+                &std::path::Path::new(container_src)
+                    .join("Dockerfile")
+                    .to_str()
+                    .unwrap(),
+                container_src,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
             let child = cmd.spawn().map_err(|err| {
                 tracing::error!("Failed to spawn docker build: {}", err);
@@ -138,7 +142,10 @@ pub async fn build_docker(
                 false => {
                     tracing::error!("Failed to build image");
 
-                    return Err(anyhow::anyhow!("Failed to build image: {}", String::from_utf8(output.stderr).unwrap()));
+                    return Err(anyhow::anyhow!(
+                        "Failed to build image: {}",
+                        String::from_utf8(output.stderr).unwrap()
+                    ));
                 }
             }
         }
@@ -178,7 +185,7 @@ pub async fn build_docker(
     let containers = docker
         .list_containers(Some(ListContainersOptions::<String> {
             all: true,
-            filters: HashMap::from([("name".to_string(), vec![ format!("^{container_name}$") ])]),
+            filters: HashMap::from([("name".to_string(), vec![format!("^{container_name}$")])]),
             ..Default::default()
         }))
         .await
@@ -198,6 +205,14 @@ pub async fn build_docker(
                 tracing::error!("Failed to stop container: {}", err);
                 err
             })?;
+
+        if let Err(err) = docker
+            .wait_container(container_name, None::<WaitContainerOptions<String>>)
+            .try_collect::<Vec<_>>()
+            .await
+        {
+            tracing::error!(?err, "Container Stoped Have Error: {}", err);
+        }
 
         docker
             .remove_container(containers.first().unwrap().id.as_ref().unwrap(), None)
@@ -330,6 +345,17 @@ pub async fn build_docker(
                     }),
                     ..Default::default()
                 }),
+                healthcheck: Some(HealthConfig {
+                    test: Some(vec![
+                        "CMD-SHELL".to_string(),
+                        "pg_isready -U postgres".to_string(),
+                    ]),
+                    interval: Some(Duration::from_secs(5).as_nanos() as i64),
+                    timeout: Some(Duration::from_secs(5).as_nanos() as i64),
+                    retries: Some(10),
+                    start_period: Some(Duration::from_secs(5).as_nanos() as i64),
+                    ..Default::default()
+                }),
                 ..Default::default()
             };
 
@@ -356,8 +382,28 @@ pub async fn build_docker(
                 })?;
 
             // wait until postgres is ready
-            // TODO: change this into a psql command check
-            std::thread::sleep(std::time::Duration::from_secs(10));
+
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+
+                match docker.inspect_container(&db_name, None).await {
+                    Err(err) => {
+                        tracing::debug!("Failed to inspect container. Will try again: {}", err);
+                        continue;
+                    }
+                    Ok(container) => {
+                        if container
+                            .state
+                            .and_then(|state| state.health)
+                            .and_then(|health| health.status)
+                            .and_then(|status| status.eq(&HealthStatusEnum::HEALTHY).then_some(()))
+                            .is_some()
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
 
             // connect db container to network
             docker
@@ -444,6 +490,17 @@ pub async fn build_docker(
                             }),
                             ..Default::default()
                         }),
+                        healthcheck: Some(HealthConfig {
+                            test: Some(vec![
+                                "CMD-SHELL".to_string(),
+                                "pg_isready -U postgres".to_string(),
+                            ]),
+                            interval: Some(Duration::from_secs(5).as_nanos() as i64),
+                            timeout: Some(Duration::from_secs(5).as_nanos() as i64),
+                            retries: Some(10),
+                            start_period: Some(Duration::from_secs(5).as_nanos() as i64),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     };
 
@@ -470,8 +527,32 @@ pub async fn build_docker(
                         })?;
 
                     // wait until postgres is ready
-                    // TODO: change this into a psql command check
-                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    loop {
+                        std::thread::sleep(Duration::from_secs(2));
+
+                        match docker.inspect_container(&db_name, None).await {
+                            Err(err) => {
+                                tracing::debug!(
+                                    "Failed to inspect container. Will try again: {}",
+                                    err
+                                );
+                                continue;
+                            }
+                            Ok(container) => {
+                                if container
+                                    .state
+                                    .and_then(|state| state.health)
+                                    .and_then(|health| health.status)
+                                    .and_then(|status| {
+                                        status.eq(&HealthStatusEnum::HEALTHY).then_some(())
+                                    })
+                                    .is_some()
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                    }
 
                     // connect db container to network
                     docker
@@ -645,21 +726,12 @@ pub async fn build_docker(
             }
 
             // wait until container is stopped
-            let mut i = 0;
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-
-                if let Err(err) = docker.remove_container(container_name, None).await {
-                    tracing::debug!("Failed to remove container. Will try again: {}", err);
-                    i += 1;
-                    if i > 10 {
-                        tracing::error!("Failed to remove container: {}", err);
-                        break;
-                    }
-
-                    continue;
-                }
-                break;
+            if let Err(err) = docker
+                .wait_container(container_name, None::<WaitContainerOptions<String>>)
+                .try_collect::<Vec<_>>()
+                .await
+            {
+                tracing::error!(?err, "Container Stoped Have Error: {}", err);
             }
         }
 
