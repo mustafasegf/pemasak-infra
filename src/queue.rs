@@ -272,7 +272,7 @@ pub async fn process_task_poll(
                         Err(BuildError {
                             message,
                             inner_error,
-                        }) => tracing::error!(?inner_error, message),
+                        }) => tracing::error!(err = ?inner_error, message),
                     };
 
                     build_count.fetch_add(1, Ordering::SeqCst);
@@ -320,7 +320,7 @@ pub async fn process_task_enqueue(
                 }
             },
             Err(err) => {
-                tracing::error!(%err, "Can't query project: Failed to query database");
+                tracing::error!(?err, "Can't query project: Failed to query database");
                 continue;
             }
         };
@@ -342,7 +342,7 @@ pub async fn process_task_enqueue(
         {
             Ok(build_details) => build_details,
             Err(err) => {
-                tracing::error!(%err, "Can't create build: Failed to query database");
+                tracing::error!(?err, "Can't create build: Failed to query database");
                 continue;
             }
         };
