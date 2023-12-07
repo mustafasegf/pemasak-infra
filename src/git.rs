@@ -425,7 +425,7 @@ pub async fn recieve_pack_rpc(
     let branch = match branch {
         Some(branch) => branch,
         None => {
-            tracing::error!("no branch found");
+            tracing::error!(?branch, "no branch found");
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())
@@ -581,8 +581,8 @@ pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes)
     let mut child = cmd.spawn().expect("failed to spawn command");
     let mut stdin = child.stdin.take().expect("failed to get stdin");
 
-    if let Err(e) = stdin.write_all(&body).await {
-        tracing::error!("Failed to write to stdin: {}", e);
+    if let Err(err) = stdin.write_all(&body).await {
+        tracing::error!(?err, "Failed to write to stdin: {}", err);
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         return response;
     }
@@ -599,8 +599,8 @@ pub async fn service_rpc(rpc: &str, path: &str, headers: HeaderMap, body: Bytes)
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
     } else {
         tracing::info!("Command succeeded!");
-        tracing::info!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
-        tracing::info!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+        tracing::debug!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+        tracing::debug!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
         *response.body_mut() = Body::from(output.stdout);
     }
 

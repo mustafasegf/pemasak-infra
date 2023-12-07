@@ -449,12 +449,13 @@ pub async fn build_dockerfile(container_src: &str, image_name: &str) -> Result<(
     match output.status.success() {
         true => Ok((String::from_utf8(output.stderr).unwrap(), false)),
         false => {
-            tracing::error!("Failed to build image");
-
-            return Err(anyhow::anyhow!(
+            let err = anyhow::anyhow!(
                 "Failed to build image: {}",
                 String::from_utf8(output.stderr).unwrap()
-            ));
+            );
+            tracing::error!(?err, "Failed to build image");
+
+            return Err(err);
         }
     }
 }
