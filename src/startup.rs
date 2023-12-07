@@ -5,6 +5,7 @@ use axum::{middleware, Router};
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
 use bollard::container::StartContainerOptions;
+use bollard::service::ContainerStateStatusEnum;
 use bollard::Docker;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
@@ -16,6 +17,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use uuid::Uuid;
 
+use anyhow::Result;
 use std::net::{SocketAddr, TcpListener};
 
 use crate::auth::User;
@@ -40,8 +42,10 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         let pool = state.pool.clone();
         async move {
             check_build(&pool).await;
+            start_docker_container(&pool).await.unwrap();
         }
     });
+
     let http_trace = telemetry::http_trace_layer();
     let pool = state.pool.clone();
 
@@ -119,6 +123,57 @@ pub async fn check_build(pool: &PgPool) {
             }
         }
     }
+}
+
+/// get all project and check if docker is running. run docker if it's not running
+pub async fn start_docker_container(pool: &PgPool) -> Result<()> {
+    let docker = Docker::connect_with_local_defaults()?;
+    let projects = sqlx::query!(
+        r#"
+        select users.username, projects.name as project_name
+        FROM projects
+        JOIN project_owners ON projects.owner_id = project_owners.id
+        JOIN users_owners ON project_owners.id = users_owners.owner_id
+        JOIN users ON users_owners.user_id = users.id
+        "#
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|project| {
+        format!(
+            "{}-{}",
+            project.username.replace('.', "-"),
+            project.project_name
+        )
+    })
+    .collect::<Vec<String>>();
+
+    for project in projects {
+        match docker.inspect_container(&project, None).await {
+            Ok(container) => {
+                if container
+                    .state
+                    .and_then(|state| state.status)
+                    .and_then(|status| {
+                        (status == ContainerStateStatusEnum::EXITED
+                            || status == ContainerStateStatusEnum::DEAD)
+                            .then_some(())
+                    })
+                    .is_some()
+                {
+                    tracing::info!("Starting container {}", project);
+                    docker
+                        .start_container(&project, None::<StartContainerOptions<&str>>)
+                        .await
+                        .unwrap();
+                }
+            }
+            Err(_) => {}
+        };
+    }
+
+    Ok(())
 }
 
 pub async fn fallback(
