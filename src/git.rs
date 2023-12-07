@@ -413,12 +413,9 @@ pub async fn recieve_pack_rpc(
 
     // get first file in branch folder
     let branch = match std::fs::read_dir(&head_dir) {
-        Ok(mut dir) => dir.find_map(|entry| {
-            entry.ok().and_then(|e| {
-                e.file_name().into_string().ok()
-                // .and_then(|s| s.strip_suffix(".lock").map(|s| s.to_string()))
-            })
-        }),
+        Ok(mut dir) => {
+            dir.find_map(|entry| entry.ok().and_then(|e| e.file_name().into_string().ok()))
+        }
         Err(_) => None,
     };
 
@@ -433,6 +430,19 @@ pub async fn recieve_pack_rpc(
         }
     };
     tracing::info!(branch, "git branch name");
+
+    if let Err(_err) = std::fs::read_dir(format!("{path}/master")) {
+        let repo = Repository::open_bare(&path).unwrap();
+
+        // The new default branch name
+        let new_default_branch = format!("refs/heads/{branch}");
+
+        // Check if the branch exists, panic if it does not
+        repo.find_reference(&new_default_branch).unwrap();
+
+        // Change the HEAD to point to the new default branch
+        repo.set_head(&new_default_branch).unwrap();
+    }
 
     // TODO: clean up this mess
     if let Err(_e) = git2::Repository::clone(&path, &container_src) {
@@ -674,6 +684,9 @@ pub async fn get_info_refs(
 
     let body = packet_write(&format!("# service=git-{}\n", service));
     let body = [body, packet_flush(), out.stdout].concat();
+
+    let body_str = String::from_utf8(body.clone()).unwrap();
+    tracing::debug!(body = body_str, "response body");
 
     Response::builder()
         .no_cache()
