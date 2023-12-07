@@ -4,6 +4,8 @@ use axum::{middleware, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
+use bollard::container::StartContainerOptions;
+use bollard::Docker;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
@@ -34,6 +36,12 @@ pub struct AppState {
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
+    tokio::spawn({
+        let pool = state.pool.clone();
+        async move {
+            check_build(&pool).await;
+        }
+    });
     let http_trace = telemetry::http_trace_layer();
     let pool = state.pool.clone();
 
@@ -84,6 +92,33 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .map_err(|err| format!("failed to start server: {}", err))
+}
+
+/// check if there's still docker that's stuck on building and make them failed
+pub async fn check_build(pool: &PgPool) {
+    match sqlx::query!(
+        r#"
+        update builds
+        set status = 'building'
+        WHERE status = 'building'
+        returning id, (select name from projects where id = project_id)
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Err(err) => tracing::error!(?err, "Failed to check build status"),
+        Ok(records) => {
+            for record in records {
+                tracing::info!(
+                    ?record,
+                    "Build {}, project {} is stuck, marking it as failed",
+                    record.id,
+                    record.name.clone().unwrap_or_default()
+                );
+            }
+        }
+    }
 }
 
 pub async fn fallback(
