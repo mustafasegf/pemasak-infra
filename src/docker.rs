@@ -6,11 +6,11 @@ use anyhow::Result;
 use bollard::container::WaitContainerOptions;
 use bollard::service::{HealthConfig, HealthStatusEnum, Network};
 use bollard::{
-    container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
-    image::{ListImagesOptions, TagImageOptions},
+    container::{Config, CreateContainerOptions, StartContainerOptions},
+    image::TagImageOptions,
     network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
-    volume::{CreateVolumeOptions, ListVolumesOptions},
+    volume::CreateVolumeOptions,
     Docker,
 };
 use futures_util::TryStreamExt;
@@ -46,7 +46,7 @@ pub async fn build_docker(
     let volume_name = format!("{}-volume", container_name);
 
     let docker = Docker::connect_with_local_defaults().map_err(|err| {
-        tracing::error!("Failed to connect to docker: {}", err);
+        tracing::error!(?err, "Failed to connect to docker: {}", err);
         err
     })?;
 
@@ -89,98 +89,62 @@ pub async fn build_docker(
         }
     };
 
-    // TODO: use docker inspect
-    // check if image exists
-    let images = &docker
-        .list_images(Some(ListImagesOptions::<String> {
-            all: false,
-            filters: HashMap::from([("reference".to_string(), vec![image_name.to_string()])]),
-            ..Default::default()
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list images: {}", err);
-            err
-        })?;
+    docker.inspect_image(&image_name).await?;
 
-    images.first().ok_or(anyhow::anyhow!("No image found"))?;
+    match docker.inspect_container(container_name, None).await {
+        Ok(_) => {
+            remove_container(&docker, &container_name).await?;
 
-    // check if container exists
-    let containers = docker
-        .list_containers(Some(ListContainersOptions::<String> {
-            all: true,
-            filters: HashMap::from([("name".to_string(), vec![format!("^{container_name}$")])]),
-            ..Default::default()
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list containers: {}", err);
-            err
-        })?
-        .into_iter()
-        .collect::<Vec<_>>();
-
-    // remove container if it exists
-    if !containers.is_empty() {
-        remove_container(&docker, &container_name).await?;
-
-        docker
-            .remove_image(&old_image_name, None, None)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to remove image: {}", err);
-                err
-            })?;
+            docker
+                .remove_image(&old_image_name, None, None)
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to remove image: {}", err);
+                    err
+                })?;
+        }
+        Err(bollard::errors::Error::DockerResponseServerError { .. }) => {}
+        Err(err) => {
+            tracing::error!(?err, "Failed to inspect container: {}", err);
+            return Err(err.into());
+        }
     }
 
-    // check if database container exists
-    let db_containers = docker
-        .list_containers(Some(ListContainersOptions::<String> {
-            all: true,
-            filters: HashMap::from([("name".to_string(), vec![db_name.to_string()])]),
-            ..Default::default()
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list containers: {}", err);
-            err
-        })?
-        .into_iter()
-        .collect::<Vec<_>>();
+    let db_container_exist = match docker.inspect_container(&db_name, None).await {
+        Err(bollard::errors::Error::DockerResponseServerError { .. }) => false,
+        Err(err) => {
+            tracing::error!(?err, "Failed to inspect container: {}", err);
+            return Err(err.into());
+        }
+        _ => true,
+    };
 
-    let volumes = docker
-        .list_volumes(Some(ListVolumesOptions::<String> {
-            filters: HashMap::from([("name".to_string(), vec![volume_name.clone()])]),
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list containers: {}", err);
-            err
-        })?
-        .volumes
-        .unwrap_or_default();
-
-    // create volume if it doesn't exist
-    if volumes.is_empty() {
-        let res = docker
-            .create_volume(CreateVolumeOptions {
-                name: volume_name.clone(),
-                ..Default::default()
-            })
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to create volume: {}", err);
-                err
-            })?;
-        tracing::info!("create volume response-> {:#?}", res);
-    }
+    match docker.inspect_volume(&volume_name).await {
+        Err(bollard::errors::Error::DockerResponseServerError { .. }) => {
+            docker
+                .create_volume(CreateVolumeOptions {
+                    name: volume_name.clone(),
+                    ..Default::default()
+                })
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to create volume: {}", err);
+                    err
+                })?;
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to inspect volume: {}", err);
+            return Err(err.into());
+        }
+        _ => {}
+    };
 
     let network = create_network(&docker, &network_name).await?;
 
     // create database container if it doesn't exist
-    let db_url = match db_containers.is_empty() {
-        true => create_db(&docker, &db_name, &volume_name, &network_name).await?,
-        false => {
+    let db_url = match db_container_exist {
+        false => create_db(&docker, &db_name, &volume_name, &network_name).await?,
+        true => {
             match sqlx::query!(
                 r#"SELECT db_url FROM domains
                    JOIN projects ON projects.id = domains.project_id
@@ -201,7 +165,7 @@ pub async fn build_docker(
                     create_db(&docker, &db_name, &volume_name, &network_name).await?
                 }
                 Err(err) => {
-                    tracing::error!("Failed to query database: {}", err);
+                    tracing::error!(?err, "Failed to query database: {}", err);
                     return anyhow::Result::Err(err.into());
                 }
             }
@@ -237,7 +201,7 @@ pub async fn build_docker(
                 .map(|content| {
                     procfile::parse(&content)
                         .map_err(|err| {
-                            tracing::error!("Failed to parse Procfile: {}", err);
+                            tracing::error!(?err, "Failed to parse Procfile: {}", err);
                             err
                         })
                         .map(|map| {
@@ -252,23 +216,16 @@ pub async fn build_docker(
         tracing::debug!(release = ?release, web = ?web, "Procfile");
 
         if let Some(release) = release {
-            let config = Config {
-                image: Some(image_name.clone()),
-                env: Some(vec![
-                    "PRODUCTION=true".to_string(),
-                    format!("PORT={}", port),
-                    format!("DATABASE_URL={}", db_url),
-                ]),
-                host_config: Some(HostConfig {
-                    restart_policy: Some(RestartPolicy {
-                        name: Some(RestartPolicyNameEnum::NO),
-                        ..Default::default()
-                    }),
+            let mut config = config.clone();
+            config.host_config = Some(HostConfig {
+                restart_policy: Some(RestartPolicy {
+                    name: Some(RestartPolicyNameEnum::NO),
                     ..Default::default()
                 }),
-                cmd: Some(release.split(' ').map(|s| s.to_string()).collect()),
                 ..Default::default()
-            };
+            });
+
+            config.cmd = Some(release.split(' ').map(|s| s.to_string()).collect());
 
             if let Err(err) = docker
                 .create_container(
@@ -280,8 +237,8 @@ pub async fn build_docker(
                 )
                 .await
             {
-                tracing::error!("Failed to create container: {}", err);
-                if db_containers.is_empty() {
+                tracing::error!(?err, "Failed to create container: {}", err);
+                if !db_container_exist {
                     remove_container(&docker, &db_name).await?;
                     remove_volume(&docker, &volume_name).await?;
                 }
@@ -299,7 +256,7 @@ pub async fn build_docker(
                 )
                 .await
                 .map_err(|err| {
-                    tracing::error!("Failed to connect network: {}", err);
+                    tracing::error!(?err, "Failed to connect network: {}", err);
                     err
                 })?;
 
@@ -307,9 +264,9 @@ pub async fn build_docker(
                 .start_container(container_name, None::<StartContainerOptions<&str>>)
                 .await
             {
-                tracing::error!("Failed to start container: {}", err);
+                tracing::error!(?err, "Failed to start container: {}", err);
 
-                if db_containers.is_empty() {
+                if !db_container_exist {
                     remove_container(&docker, &db_name).await?;
                     remove_volume(&docker, &volume_name).await?;
                 }
@@ -340,7 +297,7 @@ pub async fn build_docker(
         )
         .await
         .map_err(|err| {
-            tracing::error!("Failed to create container: {}", err);
+            tracing::error!(?err, "Failed to create container: {}", err);
             err
         })?;
 
@@ -357,7 +314,7 @@ pub async fn build_docker(
         )
         .await
         .map_err(|err| {
-            tracing::error!("Failed to connect network: {}", err);
+            tracing::error!(?err, "Failed to connect network: {}", err);
             err
         })?;
 
@@ -365,7 +322,7 @@ pub async fn build_docker(
         .start_container(container_name, None::<StartContainerOptions<&str>>)
         .await
         .map_err(|err| {
-            tracing::error!("Failed to start container: {}", err);
+            tracing::error!(?err, "Failed to start container: {}", err);
             err
         })?;
 
@@ -380,7 +337,7 @@ pub async fn build_docker(
         )
         .await
         .map_err(|err| {
-            tracing::error!("Failed to inspect network: {}", err);
+            tracing::error!(?err, "Failed to inspect network: {}", err);
             err
         })?;
 
@@ -426,42 +383,34 @@ async fn remove_old_image(
     container_name: &str,
     image_name: &str,
 ) -> Result<(), bollard::errors::Error> {
-    // TODO: use inspect
-    // check if image exists
-    let images = &docker
-        .list_images(Some(ListImagesOptions::<String> {
-            all: false,
-            filters: HashMap::from([("reference".to_string(), vec![image_name.to_string()])]),
-            ..Default::default()
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!("Failed to list images: {}", err);
-            err
-        })?;
+    match docker.inspect_image(image_name).await {
+        Ok(_) => {
+            let tag_options = TagImageOptions {
+                tag: "old",
+                repo: container_name,
+            };
 
-    // remove image if it exists
-    if let Some(_image) = images.first() {
-        let tag_options = TagImageOptions {
-            tag: "old",
-            repo: container_name,
-        };
+            docker
+                .tag_image(container_name, Some(tag_options))
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to tag image: {}", err);
+                    err
+                })?;
 
-        docker
-            .tag_image(container_name, Some(tag_options))
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to tag image: {}", err);
-                err
-            })?;
-
-        docker
-            .remove_image(&image_name, None, None)
-            .await
-            .map_err(|err| {
-                tracing::error!("Failed to remove image: {}", err);
-                err
-            })?;
+            docker
+                .remove_image(&image_name, None, None)
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to remove image: {}", err);
+                    err
+                })?;
+        }
+        Err(bollard::errors::Error::DockerResponseServerError { .. }) => {}
+        Err(err) => {
+            tracing::error!(?err, "Failed to inspect image: {}", err);
+            return Err(err.into());
+        }
     };
     Ok(())
 }
@@ -485,12 +434,12 @@ pub async fn build_dockerfile(container_src: &str, image_name: &str) -> Result<(
     .stderr(Stdio::piped());
 
     let child = cmd.spawn().map_err(|err| {
-        tracing::error!("Failed to spawn docker build: {}", err);
+        tracing::error!(?err, "Failed to spawn docker build: {}", err);
         err
     })?;
 
     let output = child.wait_with_output().await.map_err(|err| {
-        tracing::error!("Failed to wait for docker build: {}", err);
+        tracing::error!(?err, "Failed to wait for docker build: {}", err);
         err
     })?;
 
@@ -539,7 +488,7 @@ pub async fn remove_container(
         .remove_container(container_name, None)
         .await
         .map_err(|err| {
-            tracing::error!("Failed to remove container: {}", err);
+            tracing::error!(?err, "Failed to remove container: {}", err);
             err
         })?;
     Ok(())
@@ -553,7 +502,7 @@ pub async fn remove_volume(
         .remove_volume(volume_name, None)
         .await
         .map_err(|err| {
-            tracing::error!("Failed to remove volume: {}", err);
+            tracing::error!(?err, "Failed to remove volume: {}", err);
             err
         })?;
     Ok(())
@@ -567,7 +516,7 @@ pub async fn create_network(docker: &Docker, network_name: &str) -> Result<Netwo
         }))
         .await
         .map_err(|err| {
-            tracing::error!("Failed to list networks: {}", err);
+            tracing::error!(?err, "Failed to list networks: {}", err);
             err
         })?
         .first()
@@ -585,7 +534,7 @@ pub async fn create_network(docker: &Docker, network_name: &str) -> Result<Netwo
                 ..Default::default()
             };
             let res = docker.create_network(options).await.map_err(|err| {
-                tracing::error!("Failed to create network: {}", err);
+                tracing::error!(?err, "Failed to create network: {}", err);
                 err
             })?;
             tracing::info!("create network response-> {:#?}", res);
@@ -661,7 +610,7 @@ pub async fn create_db(
         )
         .await
         .map_err(|err| {
-            tracing::error!("Failed to create container: {}", err);
+            tracing::error!(?err, "Failed to create container: {}", err);
             err
         })?;
 
@@ -669,7 +618,7 @@ pub async fn create_db(
         .start_container(&db_name, None::<StartContainerOptions<&str>>)
         .await
         .map_err(|err| {
-            tracing::error!("Failed to start container: {}", err);
+            tracing::error!(?err, "Failed to start container: {}", err);
             err
         })?;
 
@@ -708,7 +657,7 @@ pub async fn create_db(
         )
         .await
         .map_err(|err| {
-            tracing::error!("Failed to connect network: {}", err);
+            tracing::error!(?err, "Failed to connect network: {}", err);
             err
         })?;
 
@@ -717,3 +666,7 @@ pub async fn create_db(
         username, password, db_name, 5432, "postgres"
     ))
 }
+
+
+
+
