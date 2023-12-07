@@ -103,7 +103,7 @@ pub async fn check_build(pool: &PgPool) {
     match sqlx::query!(
         r#"
         update builds
-        set status = 'building'
+        set status = 'failed', log = 'Server restarted while building. Please try again.'
         WHERE status = 'building'
         returning id, (select name from projects where id = project_id)
         "#

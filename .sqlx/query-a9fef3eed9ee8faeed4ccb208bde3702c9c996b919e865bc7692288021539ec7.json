@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        update builds\n        set status = 'building'\n        WHERE status = 'building'\n        returning id, (select name from projects where id = project_id)\n        ",
+  "query": "\n        update builds\n        set status = 'failed', log = 'Server restarted while building. Please try again.'\n        WHERE status = 'building'\n        returning id, (select name from projects where id = project_id)\n        ",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       null
     ]
   },
-  "hash": "3144dd156fc2be59ef9e6933f792b033f50a396ea583426c37e79a3a7e0f7d14"
+  "hash": "a9fef3eed9ee8faeed4ccb208bde3702c9c996b919e865bc7692288021539ec7"
 }
