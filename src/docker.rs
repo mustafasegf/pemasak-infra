@@ -175,14 +175,34 @@ pub async fn build_docker(
     // TODO: figure out if we need make this configurable
     let port = 80;
 
+    let mut envs = sqlx::query!(
+        r#"SELECT envs FROM projects WHERE projects.name = $1"#,
+        project_name
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|err| {
+        tracing::error!(?err, "Failed to query database: {}", err);
+        err
+    })
+    .map(|row| row.envs)?;
+
+    envs["PRODUCTION"] = serde_json::Value::Bool(true);
+    envs["DATABASE_URL"] = serde_json::Value::String(db_url.clone());
+    envs["PORT"] = serde_json::Value::Number(serde_json::Number::from(port));
+
+    // flatten to vec
+    let envs = envs
+        .as_object()
+        .unwrap()
+        .into_iter()
+        .map(|(key, value)| format!("{}={}", key, value))
+        .collect::<Vec<_>>();
+
     let mut config = Config {
         image: Some(image_name.clone()),
         // TDDO: rethink if we need to make this configurable
-        env: Some(vec![
-            "PRODUCTION=true".to_string(),
-            format!("PORT={}", port),
-            format!("DATABASE_URL={}", db_url),
-        ]),
+        env: Some(envs),
         host_config: Some(HostConfig {
             restart_policy: Some(RestartPolicy {
                 name: Some(RestartPolicyNameEnum::ON_FAILURE),
@@ -667,7 +687,3 @@ pub async fn create_db(
         username, password, db_name, 5432, "postgres"
     ))
 }
-
-
-
-

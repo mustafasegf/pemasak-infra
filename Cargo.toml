@@ -69,4 +69,5 @@ features = [
   "uuid",
   "chrono",
   "migrate",
+  "json"
 ]
