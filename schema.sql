@@ -44,6 +44,7 @@ CREATE TABLE projects (
   id          UUID          NOT NULL,
   owner_id    UUID          NOT NULL,
   name        TEXT          NOT NULL,
+  envs        JSONB         NOT NULL default '{}',
   created_at  TIMESTAMPTZ   NOT NULL default now(),
   updated_at  TIMESTAMPTZ   NOT NULL default now(),
   deleted_at  TIMESTAMPTZ,
