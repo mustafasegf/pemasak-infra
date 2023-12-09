@@ -3,6 +3,7 @@ use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use leptos::{ssr::render_to_string, *};
 use serde::Deserialize;
+use serde_json::{Map, json};
 use ulid::Ulid;
 use uuid::Uuid;
 
@@ -153,11 +154,17 @@ pub async fn post(
     };
 
     // create project
+    let mut envs = Map::new();
+    envs["PRODUCTION"] = json!("true");
+
+    let envs = serde_json::to_value(envs).unwrap();
+
     let project_id = match sqlx::query!(
-        r#"INSERT INTO projects (id, name, owner_id) VALUES ($1, $2, $3) RETURNING id"#,
+        r#"INSERT INTO projects (id, name, owner_id, envs) VALUES ($1, $2, $3, $4) RETURNING id"#,
         Uuid::from(Ulid::new()),
         project,
         owner_id,
+    envs,
     )
     .fetch_one(&mut *tx)
     .await

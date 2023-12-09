@@ -187,7 +187,6 @@ pub async fn build_docker(
     })
     .map(|row| row.envs)?;
 
-    envs["PRODUCTION"] = serde_json::Value::Bool(true);
     envs["DATABASE_URL"] = serde_json::Value::String(db_url.clone());
     envs["PORT"] = serde_json::Value::Number(serde_json::Number::from(port));
 

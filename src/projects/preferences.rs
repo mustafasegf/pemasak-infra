@@ -121,9 +121,11 @@ pub async fn get(
                     >Delete Database</button>
               </div>
 
-            <table>
+            <h2 class="text-xl">Environment Variables</h2>
+
+            <table class="table bg-base-100">
                 <thead>
-                    <tr>
+                    <tr class="bg-neutral">
                         <th>Key</th>
                         <th>Value</th>
                     </tr>

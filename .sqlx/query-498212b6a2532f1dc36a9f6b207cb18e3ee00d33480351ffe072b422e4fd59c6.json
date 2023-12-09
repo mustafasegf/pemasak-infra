@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO projects (id, name, owner_id) VALUES ($1, $2, $3) RETURNING id",
+  "query": "INSERT INTO projects (id, name, owner_id, envs) VALUES ($1, $2, $3, $4) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -13,12 +13,13 @@
       "Left": [
         "Uuid",
         "Text",
-        "Uuid"
+        "Uuid",
+        "Jsonb"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "4adbd9c9730521392eb30342b23c826d67c5fed711b682c6f5bbdff91c27ca58"
+  "hash": "498212b6a2532f1dc36a9f6b207cb18e3ee00d33480351ffe072b422e4fd59c6"
 }
