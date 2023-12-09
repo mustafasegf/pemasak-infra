@@ -123,11 +123,11 @@ pub async fn get(
               </h2>
               <div class="flex flex-col gap-4 w-full mt-4">
                 {
-                    match builds.len() > 0 {
+                    match !builds.is_empty() {
                         true => {
                             builds.into_iter().enumerate().map(|(index, record)| { view!{
                                 <>
-                                    <a hx-boost="true" href={format!("/{}/{}/builds/{}", owner, project, record.id.to_string())} class="bg-neutral/40 backdrop-blur-sm text-info py-4 px-8 cursor-pointer w-full rounded-lg transition-all outline outline-transparent hover:outline-blue-500">
+                                    <a hx-boost="true" href={format!("/{}/{}/builds/{}", owner, project, record.id)} class="bg-neutral/40 backdrop-blur-sm text-info py-4 px-8 cursor-pointer w-full rounded-lg transition-all outline outline-transparent hover:outline-blue-500">
                                         {
                                             let id = record.id.to_string();
                                             let status = record.status.to_string();

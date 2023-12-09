@@ -123,7 +123,7 @@ pub async fn get(
                 "Build Log - ID: "{build.id.to_string()}
               </h2>
               <div class="w-full mt-4 px-1 mockup-code bg-neutral/40 backdrop-blur-sm">
-                {build.log.split("\n").map(|line| { view!{
+                {build.log.split('\n').map(|line| { view!{
                     <pre><code>{line.to_string()}</code></pre>
                 }}).collect::<Vec<_>>()}
               </div>
