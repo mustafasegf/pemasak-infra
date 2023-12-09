@@ -1,14 +1,25 @@
-use std::{net::SocketAddr, time::Duration, borrow::Cow};
+use std::{borrow::Cow, net::SocketAddr, time::Duration};
 
-use axum::{extract::{WebSocketUpgrade, Path, ConnectInfo, ws::{Message, CloseFrame}, State}, TypedHeader, headers, response::{Response, IntoResponse}};
-use bollard::{Docker, exec::{CreateExecOptions, StartExecResults}};
-use futures_util::{StreamExt, SinkExt};
+use axum::{
+    extract::{
+        ws::{CloseFrame, Message},
+        ConnectInfo, Path, State, WebSocketUpgrade,
+    },
+    headers,
+    response::{IntoResponse, Response},
+    TypedHeader,
+};
+use bollard::{
+    exec::{CreateExecOptions, StartExecResults},
+    Docker,
+};
+use futures_util::{SinkExt, StreamExt};
 use hyper::{Body, StatusCode};
 use leptos::{ssr::render_to_string, view, IntoView};
-use tokio::io::AsyncWriteExt;
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 
-use crate::{components::Base, startup::AppState, projects::components::ProjectHeader};
+use crate::{components::Base, projects::components::ProjectHeader, startup::AppState};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -250,7 +261,10 @@ pub async fn ws(
 }
 
 #[tracing::instrument]
-pub async fn get(Path((owner, project)): Path<(String, String)>, State(AppState { domain, .. }): State<AppState>) -> Response<Body> {
+pub async fn get(
+    Path((owner, project)): Path<(String, String)>,
+    State(AppState { domain, .. }): State<AppState>,
+) -> Response<Body> {
     let ws_path = format!("/{owner}/{project}/terminal/ws");
     let html = render_to_string(move || {
         view! {

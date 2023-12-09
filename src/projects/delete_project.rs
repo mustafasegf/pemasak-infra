@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::fs::File;
 
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
-use bollard::Docker;
 use bollard::container::{RemoveContainerOptions, StopContainerOptions};
 use bollard::network::InspectNetworkOptions;
+use bollard::Docker;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};

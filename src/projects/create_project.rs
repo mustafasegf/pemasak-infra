@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    response::Response,
-    Form,
-};
+use axum::{extract::State, response::Response, Form};
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use leptos::{ssr::render_to_string, *};
@@ -16,11 +12,7 @@ use argon2::{
 };
 use rand::{Rng, SeedableRng};
 
-use crate::{
-    auth::Auth,
-    components::Base,
-    startup::AppState,
-};
+use crate::{auth::Auth, components::Base, startup::AppState};
 
 // Base64 url safe
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -38,10 +30,14 @@ pub struct CreateProjectRequest {
 pub async fn post(
     auth: Auth,
     State(AppState {
-        pool, base, domain, secure, ..
+        pool,
+        base,
+        domain,
+        secure,
+        ..
     }): State<AppState>,
     Form(req): Form<Unvalidated<CreateProjectRequest>>,
-) -> Response<Body> {    
+) -> Response<Body> {
     let CreateProjectRequest { owner, project } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
@@ -356,10 +352,7 @@ pub async fn post(
 }
 
 #[tracing::instrument(skip(auth, pool))]
-pub async fn get(
-    auth: Auth,
-    State(AppState { pool, .. }): State<AppState>,
-) -> Response<Body> {
+pub async fn get(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> Response<Body> {
     let user = auth.current_user.unwrap();
 
     let owners = match sqlx::query!(

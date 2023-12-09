@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod components;
 pub mod configuration;
+pub mod dashboard;
 pub mod docker;
 pub mod git;
 pub mod owner;
@@ -8,4 +9,3 @@ pub mod projects;
 pub mod queue;
 pub mod startup;
 pub mod telemetry;
-pub mod dashboard;

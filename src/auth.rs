@@ -189,13 +189,16 @@ pub struct UserRequest {
 
 // auto gen
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum SsoResponse {
     #[serde(rename_all = "camelCase")]
-    ServiceResponse { service_response: ServiceResponse },
-    Error { error: String },
+    ServiceResponse {
+        service_response: ServiceResponse,
+    },
+    Error {
+        error: String,
+    },
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -230,7 +233,6 @@ pub struct Jurusan {
     pub major: String,
     pub program: String,
 }
-
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn register_user(
@@ -377,20 +379,23 @@ pub async fn register_user(
 
     // TODO: use actual sso and not proxy
     if sso {
-
         // TODO: not sure if this is the best way to do this
         let client = reqwest::Client::new();
         let res = match client
             .post("https://sso.mus.sh")
-            .body(serde_json::json!({
-                "username": username,
-                "password": password.expose_secret(),
-                "casUrl": "https://sso.ui.ac.id/cas/",
-                "serviceUrl": "http%3A%2F%2Fberanda.ui.ac.id%2Fpersonal%2F",
-                "EncodeUrl": true
-            }).to_string())
+            .body(
+                serde_json::json!({
+                    "username": username,
+                    "password": password.expose_secret(),
+                    "casUrl": "https://sso.ui.ac.id/cas/",
+                    "serviceUrl": "http%3A%2F%2Fberanda.ui.ac.id%2Fpersonal%2F",
+                    "EncodeUrl": true
+                })
+                .to_string(),
+            )
             .send()
-            .await {
+            .await
+        {
             Ok(res) => res,
             Err(err) => {
                 tracing::error!(?err, "Can't register user: Failed to request sso");
@@ -439,7 +444,9 @@ pub async fn register_user(
         tracing::warn!(?body);
 
         let sso_res = match serde_json::from_slice::<SsoResponse>(&body) {
-            Ok(SsoResponse::ServiceResponse { service_response }) => service_response.authentication_success.attributes,
+            Ok(SsoResponse::ServiceResponse { service_response }) => {
+                service_response.authentication_success.attributes
+            }
             Ok(SsoResponse::Error { .. }) => {
                 let html = render_to_string(move || {
                     view! {
@@ -490,7 +497,6 @@ pub async fn register_user(
                 .unwrap();
         }
     }
-
 
     if let Err(err) = sqlx::query!(
         r#"INSERT INTO users (id, username, password, name) VALUES ($1, $2, $3, $4)"#,

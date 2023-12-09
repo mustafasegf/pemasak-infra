@@ -1,11 +1,11 @@
 use std::fmt;
 
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::components::Base;
@@ -13,12 +13,12 @@ use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
-#[sqlx(type_name = "build_state", rename_all = "lowercase")] 
+#[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
     PENDING,
     BUILDING,
     SUCCESSFUL,
-    FAILED
+    FAILED,
 }
 
 impl fmt::Display for BuildState {
@@ -35,7 +35,12 @@ impl fmt::Display for BuildState {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project, build_id)): Path<(String, String, Uuid)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
@@ -92,7 +97,7 @@ pub async fn get(
         build_id
     )
     .fetch_one(&pool)
-    .await 
+    .await
     {
         Ok(record) => record,
         Err(err) => {
@@ -106,7 +111,7 @@ pub async fn get(
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(html))
                 .unwrap();
-        }, 
+        }
     };
 
     let html = render_to_string(move || {
