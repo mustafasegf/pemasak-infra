@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT envs as \"envs: Json<HashMap<String, String>>\" from projects where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "envs: Json<HashMap<String, String>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7b71e910d63dcf573fdd77ba6f49a4a64da99665b168c6509006dbb3ad7e900a"
+}
