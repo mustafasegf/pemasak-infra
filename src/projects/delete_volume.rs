@@ -2,9 +2,12 @@ use axum::extract::Path;
 use axum::response::Response;
 use bollard::container::{StartContainerOptions, StopContainerOptions};
 use bollard::Docker;
+use bollard::volume::CreateVolumeOptions;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
+
+use crate::docker;
 
 #[tracing::instrument]
 pub async fn post(Path((owner, project)): Path<(String, String)>) -> Response<Body> {
@@ -27,7 +30,7 @@ pub async fn post(Path((owner, project)): Path<(String, String)>) -> Response<Bo
     let turned_on = match docker.inspect_container(&db_name, None).await {
         Ok(_) => {
             match docker
-                .stop_container(&db_name, None::<StopContainerOptions>)
+                .stop_container(&db_name, None)
                 .await
             {
                 Ok(_) => true,
@@ -43,19 +46,40 @@ pub async fn post(Path((owner, project)): Path<(String, String)>) -> Response<Bo
         }
     };
 
-    let status = match docker.inspect_volume(&volume_name).await {
-        Ok(_) => match docker.remove_volume(&volume_name, None).await {
-            Ok(_) => "successfully deleted",
-            Err(err) => {
-                tracing::error!(?err, "Can't delete volume: Failed to delete volume");
-                "failed to delete: volume error"
-            }
-        },
+    // let status = match docker.inspect_volume(&volume_name).await {
+    //     Ok(_) => match docker.remove_volume(&volume_name, None).await {
+    //         Ok(_) => "successfully deleted",
+    //         Err(err) => {
+    //             tracing::error!(?err, "Can't delete volume: Failed to delete volume");
+    //             "failed to delete: volume error"
+    //         }
+    //     },
+    //     Err(err) => {
+    //         tracing::debug!(?err, "Can't delete volume: volume does not exist");
+    //         "failed to delete: volume does not exist"
+    //     }
+    // };
+
+    let mut status = match docker::remove_volume(&docker, &volume_name).await {
+        Ok(_) => "successfully deleted",
         Err(err) => {
-            tracing::debug!(?err, "Can't delete volume: volume does not exist");
-            "failed to delete: volume does not exist"
+            tracing::error!(?err, "Can't delete volume: Failed to delete volume");
+            "failed to delete: volume error"
         }
     };
+
+    if let Err(err) = docker.create_volume(
+        CreateVolumeOptions {
+            name: &volume_name,
+            driver: &"local".to_string(),
+            driver_opts: Default::default(),
+            labels: Default::default(),
+        },
+    ).await {
+        tracing::error!(?err, "Can't delete volume: Failed to create volume");
+        status = "failed to delete: volume error";
+    }
+
 
     if turned_on {
         match docker
