@@ -205,7 +205,7 @@ pub async fn ws(
                                     },
                                     Ok(msg) => {
                                         let mut msg = msg.message;
-                                        msg.push_str("\n");
+                                        msg.push('\n');
                                         match input.write_all(msg.as_bytes()).await {
                                             Err(err) => {
                                                 tracing::error!(?err, "Can't write to terminal");

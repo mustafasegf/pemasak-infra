@@ -50,7 +50,7 @@ pub async fn build_docker(
         err
     })?;
 
-    remove_old_image(&docker, &image_name, &container_name).await?;
+    remove_old_image(&docker, &image_name, container_name).await?;
 
     tracing::info!("Start building {}", container_name);
 
@@ -93,7 +93,7 @@ pub async fn build_docker(
 
     match docker.inspect_container(container_name, None).await {
         Ok(_) => {
-            remove_container(&docker, &container_name).await?;
+            remove_container(&docker, container_name).await?;
 
             docker
                 .remove_image(&old_image_name, None, None)
@@ -419,7 +419,7 @@ async fn remove_old_image(
                 })?;
 
             docker
-                .remove_image(&image_name, None, None)
+                .remove_image(image_name, None, None)
                 .await
                 .map_err(|err| {
                     tracing::error!(?err, "Failed to remove image: {}", err);
@@ -429,7 +429,7 @@ async fn remove_old_image(
         Err(bollard::errors::Error::DockerResponseServerError { .. }) => {}
         Err(err) => {
             tracing::error!(?err, "Failed to inspect image: {}", err);
-            return Err(err.into());
+            return Err(err);
         }
     };
     Ok(())
@@ -438,15 +438,15 @@ async fn remove_old_image(
 pub async fn build_dockerfile(container_src: &str, image_name: &str) -> Result<(String, bool)> {
     // build from Dockerfile
     let mut cmd = Command::new("docker");
-    cmd.args(&[
+    cmd.args([
         "build",
         "-t",
-        &image_name,
+        image_name,
         "-f",
-        &std::path::Path::new(container_src)
+        (std::path::Path::new(container_src)
             .join("Dockerfile")
             .to_str()
-            .unwrap(),
+            .unwrap()),
         container_src,
     ])
     .stdin(Stdio::piped())
@@ -475,7 +475,7 @@ pub async fn build_dockerfile(container_src: &str, image_name: &str) -> Result<(
             );
             tracing::error!(?err, "Failed to build image");
 
-            return Err(err);
+            Err(err)
         }
     }
 }
@@ -636,7 +636,7 @@ pub async fn create_db(
         })?;
 
     docker
-        .start_container(&db_name, None::<StartContainerOptions<&str>>)
+        .start_container(db_name, None::<StartContainerOptions<&str>>)
         .await
         .map_err(|err| {
             tracing::error!(?err, "Failed to start container: {}", err);
@@ -648,7 +648,7 @@ pub async fn create_db(
     loop {
         std::thread::sleep(Duration::from_secs(2));
 
-        match docker.inspect_container(&db_name, None).await {
+        match docker.inspect_container(db_name, None).await {
             Err(err) => {
                 tracing::debug!("Failed to inspect container. Will try again: {}", err);
                 continue;
@@ -670,7 +670,7 @@ pub async fn create_db(
     // connect db container to network
     docker
         .connect_network(
-            &network_name,
+            network_name,
             ConnectNetworkOptions {
                 container: db_name.clone(),
                 ..Default::default()

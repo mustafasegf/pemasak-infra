@@ -4,7 +4,7 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
-use leptos::{view, For, IntoView};
+use leptos::{view, IntoView};
 use sqlx::types::Json;
 
 use crate::components::Base;

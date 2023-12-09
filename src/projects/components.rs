@@ -6,7 +6,7 @@ pub fn project_header(
     #[prop()] project: String,
     #[prop()] domain: String,
 ) -> impl IntoView {
-    let owner_dash = owner.replace(".", "-");
+    let owner_dash = owner.replace('.', "-");
     view! {
         <div class="flex items-center justify-between mb-6">
             <div class="flex flex items-center">
