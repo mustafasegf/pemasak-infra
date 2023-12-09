@@ -3,13 +3,13 @@ use std::fs::File;
 
 use axum::extract::{Path, State};
 use axum::response::Response;
-use bollard::container::{RemoveContainerOptions, StopContainerOptions};
 use bollard::network::InspectNetworkOptions;
 use bollard::Docker;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
 
+use crate::docker;
 use crate::startup::AppState;
 
 #[tracing::instrument(skip(pool, base))]
@@ -151,38 +151,14 @@ pub async fn post(
     };
 
     // remove container
-    match docker.inspect_container(&container_name, None).await {
+    // TODO: check if container have deployed
+    match docker::remove_container(&docker, &container_name).await {
         Ok(_) => {
-            match docker
-                .stop_container(&container_name, None::<StopContainerOptions>)
-                .await
-            {
-                Ok(_) => {
-                    match docker
-                        .remove_container(&container_name, None::<RemoveContainerOptions>)
-                        .await
-                    {
-                        Ok(_) => {
-                            status.insert("container", "successfully deleted");
-                        }
-                        Err(err) => {
-                            tracing::error!(
-                                ?err,
-                                "Can't delete project: Failed to delete container"
-                            );
-                            status.insert("container", "failed to delete: container error");
-                        }
-                    }
-                }
-                Err(err) => {
-                    tracing::error!(?err, "Can't delete project: Failed to stop container");
-                    status.insert("container", "failed to delete: container error");
-                }
-            };
+            status.insert("container", "successfully deleted");
         }
         Err(err) => {
-            tracing::debug!(?err, "Can't delete project: Container does not exist");
-            status.insert("container", "failed to delete: container does not exist");
+            tracing::error!(?err, "Can't delete project: Failed to delete container");
+            status.insert("container", "failed to delete: container error");
         }
     };
 
@@ -204,54 +180,26 @@ pub async fn post(
     };
 
     // remove database
-    match docker.inspect_container(&db_name, None).await {
+    match docker::remove_container(&docker, &db_name).await {
         Ok(_) => {
-            match docker
-                .stop_container(&db_name, None::<StopContainerOptions>)
-                .await
-            {
-                Ok(_) => {
-                    match docker
-                        .remove_container(&db_name, None::<RemoveContainerOptions>)
-                        .await
-                    {
-                        Ok(_) => {
-                            status.insert("db", "successfully deleted");
-                        }
-                        Err(err) => {
-                            tracing::error!(?err, "Can't delete project: Failed to delete db");
-                            status.insert("db", "failed to delete: container error");
-                        }
-                    }
-                }
-                Err(err) => {
-                    tracing::error!(?err, "Can't delete project: Failed to stop db");
-                    status.insert("db", "failed to delete: container error");
-                }
-            };
+            status.insert("db", "successfully deleted");
         }
         Err(err) => {
-            tracing::debug!(?err, "Can't delete project: db does not exist");
-            status.insert("db", "failed to delete: container does not exist");
+            tracing::error!(?err, "Can't delete project: Failed to delete db");
+            status.insert("db", "failed to delete: container error");
         }
-    };
+    }
 
     // delete volume
-    match docker.inspect_volume(&volume_name).await {
-        Ok(_) => match docker.remove_volume(&volume_name, None).await {
-            Ok(_) => {
-                status.insert("volume", "successfully deleted");
-            }
-            Err(err) => {
-                tracing::error!(?err, "Can't delete project: Failed to delete volume");
-                status.insert("volume", "failed to delete: volume error");
-            }
-        },
-        Err(err) => {
-            tracing::debug!(?err, "Can't delete project: volume does not exist");
-            status.insert("volume", "failed to delete: volume does not exist");
+    match docker::remove_volume(&docker, &volume_name).await {
+        Ok(_) => {
+            status.insert("volume", "successfully deleted");
         }
-    };
+        Err(err) => {
+            tracing::error!(?err, "Can't delete project: Failed to delete volume");
+            status.insert("volume", "failed to delete: volume error");
+        }
+    }
 
     // remove network
     match docker
