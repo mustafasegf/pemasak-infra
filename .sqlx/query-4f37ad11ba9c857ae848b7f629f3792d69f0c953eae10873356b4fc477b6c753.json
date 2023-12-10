@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT projects.id, projects.state\n           FROM projects\n           JOIN project_owners ON projects.owner_id = project_owners.id\n           JOIN users_owners ON project_owners.id = users_owners.owner_id\n           AND projects.name = $1\n           AND project_owners.name = $2\n        ",
+  "query": "SELECT projects.id, projects.state as \"state: ProjectState\"\n           FROM projects\n           JOIN project_owners ON projects.owner_id = project_owners.id\n           JOIN users_owners ON project_owners.id = users_owners.owner_id\n           AND projects.name = $1\n           AND project_owners.name = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "state",
+        "name": "state: ProjectState",
         "type_info": {
           "Custom": {
             "name": "project_state",
@@ -37,5 +37,5 @@
       false
     ]
   },
-  "hash": "c0607a180a50be7661f83cd3bc17bb0b2c9bc8ff9ce4ade38dab97ab3bc4df09"
+  "hash": "4f37ad11ba9c857ae848b7f629f3792d69f0c953eae10873356b4fc477b6c753"
 }

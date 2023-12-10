@@ -18,7 +18,7 @@ pub enum BuildState {
     Failed,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
 #[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum ProjectState {
     #[default]
@@ -43,7 +43,7 @@ pub async fn get(
 
     // check if project exist
     let project_record = match sqlx::query!(
-        r#"SELECT projects.id, projects.state
+        r#"SELECT projects.id, projects.state as "state: ProjectState"
            FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id
            JOIN users_owners ON project_owners.id = users_owners.owner_id
@@ -179,12 +179,25 @@ pub async fn get(
             <Base is_logged_in={true}>
                 <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
 
-                <div class="flex flex-row gap-4 w-full">
-                    <h2 class="text-xl">"State: "{project_record.state.clone()}</h2>
-                    // {match project_record.state {
-                    //     
-                    //
-                    // }}
+                <div id="status" class="flex flex-row gap-4 w-full">
+                    <h2 class="text-xl">"State: "{project_record.state.to_string()}</h2>
+                    {match project_record.state {
+                        ProjectState::Running => {
+                            view!{
+                                <>
+                                    <button hx-target="#status" hx-swap="outerHTML" hx-post="/{owner}/{project}/stop" class="btn btn-outline btn-sm btn-accent">Stop</button>
+                                </>
+                            }
+                        },
+                        ProjectState::Stopped => {
+                            view!{
+                                <>
+                                    <button hx-target="#status" hx-swap="outerHTML" hx-post="/{owner}/{project}/start" class="btn btn-outline btn-sm btn-accent">Start</button>
+                                </>
+                            }
+                        },
+                        _ => view!{<></>}
+                    }}
                     
                 </div>
 
