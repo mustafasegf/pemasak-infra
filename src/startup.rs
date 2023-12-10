@@ -4,7 +4,6 @@ use axum::{middleware, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
-use bollard::container::StartContainerOptions;
 use bollard::service::ContainerStateStatusEnum;
 use bollard::Docker;
 use bytes::Bytes;
@@ -141,29 +140,22 @@ pub async fn check_build(pool: &PgPool) {
 /// get all project and check if docker is running. run docker if it's not running
 pub async fn start_docker_container(pool: &PgPool) -> Result<()> {
     let docker = Docker::connect_with_local_defaults()?;
-    let projects = sqlx::query!(
+    let container_names = sqlx::query!(
         r#"
-        select users.username, projects.name as project_name
-        FROM projects
-        JOIN project_owners ON projects.owner_id = project_owners.id
-        JOIN users_owners ON project_owners.id = users_owners.owner_id
-        JOIN users ON users_owners.user_id = users.id
+            SELECT domains.name
+            FROM domains 
+            JOIN projects on domains.project_id = projects.id 
+            WHERE projects.state = 'running'
         "#
     )
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|project| {
-        format!(
-            "{}-{}",
-            project.username.replace('.', "-"),
-            project.project_name
-        )
-    })
+    .map(|record| record.name)
     .collect::<Vec<String>>();
 
-    for project in projects {
-        if let Ok(container) = docker.inspect_container(&project, None).await {
+    for container_name in container_names {
+        if let Ok(container) = docker.inspect_container(&container_name, None).await {
             if container
                 .state
                 .and_then(|state| state.status)
@@ -174,11 +166,16 @@ pub async fn start_docker_container(pool: &PgPool) -> Result<()> {
                 })
                 .is_some()
             {
-                tracing::info!("Starting container {}", project);
-                docker
-                    .start_container(&project, None::<StartContainerOptions<&str>>)
-                    .await
-                    .unwrap();
+                tracing::info!("Starting container {}", container_name);
+                let db_name = format!("{}-db", container_name);
+
+                if let Err(err) = start_container(&docker, &db_name, true).await {
+                    tracing::error!(?err, "Can't start container: Failed to start container");
+                }
+
+                if let Err(err) = start_container(&docker, &container_name, false).await {
+                    tracing::error!(?err, "Can't start container: Failed to start container");
+                }
             }
         };
     }
