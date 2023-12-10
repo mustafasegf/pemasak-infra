@@ -46,7 +46,7 @@ pub async fn post(
                 r#"
                 setTimeout(function() {
                     window.location.href = '/dashboard';
-                }, 5000);  // 3000 milliseconds = 3 seconds
+                }, 1000);  // 1000 milliseconds = 1 seconds
             "#
                 </script>
             }

@@ -1,11 +1,11 @@
 use axum::extract::{Path, State};
 use axum::response::Response;
-use bollard::container::StartContainerOptions;
 use bollard::Docker;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
 
+use crate::docker::start_container;
 use crate::startup::AppState;
 
 #[tracing::instrument(skip(pool))]
@@ -118,10 +118,7 @@ pub async fn post(
     };
 
     // Start container
-    if let Err(err) = docker
-        .start_container(&db_name, None::<StartContainerOptions<&str>>)
-        .await
-    {
+    if let Err(err) = start_container(&docker, &db_name, true).await {
         tracing::error!(?err, "Can't delete project: Failed to start container");
         let html = render_to_string(move || {
             view! {
@@ -148,10 +145,7 @@ pub async fn post(
     }
 
     // start db container
-    if let Err(err) = docker
-        .start_container(&db_name, None::<StartContainerOptions<&str>>)
-        .await
-    {
+    if let Err(err) = start_container(&docker, &container_name, false).await {
         tracing::error!(?err, "Can't delete project: Failed to start db container");
         let html = render_to_string(move || {
             view! {

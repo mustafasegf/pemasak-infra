@@ -20,6 +20,7 @@ use nixpacks::{
 };
 use procfile;
 use rand::{Rng, SeedableRng};
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::process::Command;
 
@@ -187,16 +188,26 @@ pub async fn build_docker(
     })
     .map(|row| row.envs)?;
 
-    envs["DATABASE_URL"] = serde_json::Value::String(db_url.clone());
-    envs["PORT"] = serde_json::Value::Number(serde_json::Number::from(port));
+    envs["DATABASE_URL"] = json!(db_url);
+    envs["PORT"] = json!(port);
 
     // flatten to vec
     let envs = envs
         .as_object()
         .unwrap()
         .into_iter()
-        .map(|(key, value)| format!("{}={}", key, value))
+        .map(|(key, value)| {
+            let value = match value {
+                Value::String(value) => value.to_owned(),
+                Value::Number(value) => value.to_string(),
+                Value::Bool(value) => value.to_string(),
+                _ => String::new(),
+            };
+            format!("{}={}", key, value)
+        })
         .collect::<Vec<_>>();
+
+    tracing::warn!(?envs, "envs");
 
     let mut config = Config {
         image: Some(image_name.clone()),
@@ -633,37 +644,10 @@ pub async fn create_db(
             err
         })?;
 
-    docker
-        .start_container(db_name, None::<StartContainerOptions<&str>>)
-        .await
-        .map_err(|err| {
-            tracing::error!(?err, "Failed to start container: {}", err);
-            err
-        })?;
-
-    // wait until postgres is ready
-
-    loop {
-        std::thread::sleep(Duration::from_secs(2));
-
-        match docker.inspect_container(db_name, None).await {
-            Err(err) => {
-                tracing::debug!("Failed to inspect container. Will try again: {}", err);
-                continue;
-            }
-            Ok(container) => {
-                if container
-                    .state
-                    .and_then(|state| state.health)
-                    .and_then(|health| health.status)
-                    .and_then(|status| status.eq(&HealthStatusEnum::HEALTHY).then_some(()))
-                    .is_some()
-                {
-                    break;
-                }
-            }
-        }
-    }
+    start_container(&docker, db_name, true).await.map_err(|err| {
+        tracing::error!(?err, "Failed to start container: {}", err);
+        err
+    })?;
 
     // connect db container to network
     docker
@@ -684,4 +668,43 @@ pub async fn create_db(
         "postgresql://{}:{}@{}:{}/{}",
         username, password, db_name, 5432, "postgres"
     ))
+}
+
+pub async fn start_container(
+    docker: &Docker,
+    container_name: &str,
+    db: bool,
+) -> Result<(), bollard::errors::Error> {
+    docker
+        .start_container(container_name, None::<StartContainerOptions<&str>>)
+        .await
+        .map_err(|err| {
+            tracing::error!(?err, "Failed to start container: {}", err);
+            err
+        })?;
+
+    if db {
+        loop {
+            std::thread::sleep(Duration::from_secs(2));
+
+            match docker.inspect_container(container_name, None).await {
+                Err(err) => {
+                    tracing::debug!("Failed to inspect container. Will try again: {}", err);
+                    continue;
+                }
+                Ok(container) => {
+                    if container
+                        .state
+                        .and_then(|state| state.health)
+                        .and_then(|health| health.status)
+                        .and_then(|status| status.eq(&HealthStatusEnum::HEALTHY).then_some(()))
+                        .is_some()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }

@@ -154,7 +154,7 @@ pub async fn post(
     };
 
     let envs = json!({
-        "PRODUCTION": true
+        "PRODUCTION": "true"
     });
 
     // create project

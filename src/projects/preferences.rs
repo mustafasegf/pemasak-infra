@@ -5,6 +5,7 @@ use axum::response::Response;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
+use serde_json::Value;
 use sqlx::types::Json;
 
 use crate::components::Base;
@@ -71,12 +72,12 @@ pub async fn get(
 
     #[derive(sqlx::FromRow)]
     struct Envs {
-        envs: Json<HashMap<String, String>>,
+        envs: Json<HashMap<String, Value>>,
     }
 
     let envs = match sqlx::query_as!(
         Envs,
-        r#"SELECT envs as "envs: Json<HashMap<String, String>>" from projects where id = $1"#,
+        r#"SELECT envs as "envs: Json<HashMap<String, Value>>" from projects where id = $1"#,
         project_id,
     )
     .fetch_one(&pool)
@@ -131,6 +132,12 @@ pub async fn get(
                     </tr>
                 </thead>
                 {envs.into_iter().map(|(key, value)| {
+                    let value = match value {
+                        Value::String(value) => value.to_owned(),
+                        Value::Number(value) => value.to_string(),
+                        Value::Bool(value) => value.to_string(),
+                        _ => String::new(),
+                    };
                     view! {
                         <tr>
                             <td>{key}</td>
