@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE projects\n                    SET state = 'running'\n                    WHERE id = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a3f7cfccfea187e64eb3750446a14835f819a73a988d0482d79486dba379e9a"
+}

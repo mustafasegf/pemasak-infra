@@ -171,6 +171,19 @@ pub async fn trigger_build(
                 });
             }
 
+            if let Err(err) = sqlx::query!(
+                "UPDATE projects SET state = 'running' WHERE id = $1",
+                project.id
+            )
+            .execute(&pool)
+            .await
+            {
+                return Err(BuildError {
+                    message: "Failed to update project state: Failed to query database".to_string(),
+                    inner_error: Some(err.into()),
+                });
+            }
+
             Ok(result)
         }
         Err(err) => {

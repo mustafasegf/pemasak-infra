@@ -11,6 +11,7 @@ use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::{Any, CorsLayer};
@@ -22,6 +23,7 @@ use std::net::{SocketAddr, TcpListener};
 
 use crate::auth::User;
 use crate::configuration::Settings;
+use crate::docker::start_container;
 use crate::queue::BuildQueueItem;
 use crate::{auth, dashboard, git, owner, projects, telemetry};
 
@@ -35,6 +37,16 @@ pub struct AppState {
     pub pool: PgPool,
     pub build_channel: Sender<BuildQueueItem>,
     pub secure: bool,
+}
+
+#[derive(Default, Clone, Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
+#[sqlx(type_name = "build_state", rename_all = "lowercase")]
+pub enum ProjectState {
+    #[default]
+    Empty,
+    Running,
+    Stopped,
+    Idle,
 }
 
 pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Result<(), String> {
@@ -195,6 +207,95 @@ pub async fn fallback(
             .unwrap();
     }
 
+    let (owner, project) = match subdomain.rfind('-') {
+        Some(index) => (
+            subdomain[..index].replace('-', "."),
+            &subdomain[index + 1..],
+        ),
+        None => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap()
+        }
+    };
+
+    let project_record = match sqlx::query!(
+        r#"
+        SELECT projects.id, projects.state as "state: ProjectState"
+        FROM projects
+        JOIN project_owners ON projects.owner_id = project_owners.id
+        JOIN users_owners ON project_owners.id = users_owners.owner_id
+        AND projects.name = $1
+        AND project_owners.name = $2
+      "#,
+        project,
+        owner,
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            tracing::debug!("Can't get project: Project does not exist");
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap();
+        }
+        Err(err) => {
+            tracing::error!(?err, "Can't get project_owners: Failed to query database");
+
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::empty())
+                .unwrap();
+        }
+    };
+
+    let db_name = format!("{subdomain}-db");
+    let docker = Docker::connect_with_local_defaults().unwrap();
+
+    match project_record.state {
+        ProjectState::Stopped => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap()
+        }
+        ProjectState::Idle => {
+            if let Err(err) = start_container(&docker, &db_name, true).await {
+                tracing::error!(?err, "Can't start container: Failed to start container");
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap();
+            }
+            if let Err(err) = start_container(&docker, subdomain, false).await {
+                tracing::error!(?err, "Can't start container: Failed to start container");
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap();
+            }
+
+            if let Err(err) = sqlx::query!(
+                r#"
+                    UPDATE projects
+                    SET state = 'running'
+                    WHERE id = $1
+                "#,
+                project_record.id
+            )
+            .execute(&pool)
+            .await
+            {
+                tracing::error!(?err, "Can't update project: Failed to update project");
+            }
+        }
+        _ => {}
+    }
+
     tracing::debug!(hostname, "hostname {}", hostname);
     tracing::debug!(domain, "domain {}", domain);
     tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
@@ -220,7 +321,10 @@ pub async fn fallback(
             let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
             *req.uri_mut() = Uri::try_from(uri).unwrap();
             match client.request(req).await {
-                Ok(res) => res,
+                Ok(res) => {
+                    tracing::debug!("response");
+                    res
+                }
                 Err(err) => {
                     tracing::error!(?err, "Can't access container: Failed request to container");
 
@@ -274,7 +378,94 @@ pub async fn fallback_middleware(
         return Ok(next.run(req).await);
     }
 
-    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
+    let (owner, project) = match subdomain.rfind('-') {
+        Some(index) => (
+            subdomain[..index].replace('-', "."),
+            &subdomain[index + 1..],
+        ),
+        None => {
+            return Err(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap())
+        }
+    };
+
+    let project_record = match sqlx::query!(
+        r#"
+        SELECT projects.id, projects.state as "state: ProjectState"
+        FROM projects
+        JOIN project_owners ON projects.owner_id = project_owners.id
+        JOIN users_owners ON project_owners.id = users_owners.owner_id
+        AND projects.name = $1
+        AND project_owners.name = $2
+      "#,
+        project,
+        owner,
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            tracing::debug!("Can't get project: Project does not exist");
+            return Err(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap());
+        }
+        Err(err) => {
+            tracing::error!(?err, "Can't get project_owners: Failed to query database");
+
+            return Err(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::empty())
+                .unwrap());
+        }
+    };
+
+    let db_name = format!("{subdomain}-db");
+    let docker = Docker::connect_with_local_defaults().unwrap();
+
+    match project_record.state {
+        ProjectState::Stopped => {
+            return Err(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::empty())
+                .unwrap())
+        }
+        ProjectState::Idle => {
+            if let Err(err) = start_container(&docker, &db_name, true).await {
+                tracing::error!(?err, "Can't start container: Failed to start container");
+                return Err(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap());
+            }
+            if let Err(err) = start_container(&docker, subdomain, false).await {
+                tracing::error!(?err, "Can't start container: Failed to start container");
+                return Err(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap());
+            }
+
+            if let Err(err) = sqlx::query!(
+                r#"
+                    UPDATE projects
+                    SET state = 'running'
+                    WHERE id = $1
+                "#,
+                project_record.id
+            )
+            .execute(&pool)
+            .await
+            {
+                tracing::error!(?err, "Can't update project: Failed to update project");
+            }
+        }
+        _ => {}
+    }
 
     match sqlx::query!(
         r#"SELECT docker_ip, port
@@ -300,6 +491,8 @@ pub async fn fallback_middleware(
                 Ok(res) => Err(res),
                 Err(err) => {
                     tracing::error!(?err, "Can't access container: Failed request to container");
+
+                    // update to new ip
 
                     Err(Response::builder()
                         .status(StatusCode::BAD_REQUEST)
