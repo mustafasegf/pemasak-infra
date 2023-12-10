@@ -4,6 +4,7 @@ application:
   domain: "localhost:8080"
   bodylimit: "25mib"
   ipv6: false
+  idle: 30
 
 database:
   user: "postgres"

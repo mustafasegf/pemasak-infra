@@ -123,6 +123,7 @@ async fn main() {
 
     tokio::spawn({
         let pool = pool.clone();
+        let idle_time = config.application.idle * 60;
         async move {
             let idle_map = Arc::new(RwLock::new(HashMap::new()));
             // add all projects to the idle map
@@ -155,9 +156,8 @@ async fn main() {
                         let now = SystemTime::now();
 
                         for (container_name, last_active) in idle_map.write().await.iter_mut() {
-                            // if it's been idle for more than 5 minutes, do something
-                            if now.duration_since(*last_active).unwrap().as_secs() > 5 {
-                                tracing::info!("Idle for more than 5 minutes: {}", container_name);
+                            // if it's been idle for more than idle_time, stop the container
+                            if now.duration_since(*last_active).unwrap().as_secs() > idle_time {
                                 if let Err(err) = docker.stop_container(container_name, None).await
                                 {
                                     tracing::error!(?err, "Failed to stop container");
@@ -191,7 +191,7 @@ async fn main() {
                                 idle_map.write().await.remove(container_name);
                             }
                         }
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     }
                 }
             });

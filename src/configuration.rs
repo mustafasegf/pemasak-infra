@@ -35,6 +35,7 @@ pub struct ApplicationSettings {
     pub bodylimit: String,
     pub ipv6: bool,
     pub secure: bool,
+    pub idle: u64,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -76,6 +77,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("application.bodylimit", "25mib")?
         .set_default("application.ipv6", false)?
         .set_default("application.secure", false)?
+        .set_default("application.idle", 30)?
         .set_default("database.user", "postgres")?
         .set_default("database.password", "postgres")?
         .set_default("database.host", "localhost")?
