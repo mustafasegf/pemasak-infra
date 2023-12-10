@@ -615,7 +615,6 @@ pub async fn create_db(
             timeout: Some(Duration::from_secs(5).as_nanos() as i64),
             retries: Some(10),
             start_period: Some(Duration::from_secs(5).as_nanos() as i64),
-            ..Default::default()
         }),
         ..Default::default()
     };
