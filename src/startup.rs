@@ -37,6 +37,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub build_channel: Sender<BuildQueueItem>,
     pub secure: bool,
+    pub idle_channel: Sender<String>,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
@@ -190,6 +191,7 @@ pub async fn fallback(
         pool,
         client,
         domain,
+        idle_channel,
         ..
     }): State<AppState>,
     Host(hostname): Host,
@@ -205,6 +207,10 @@ pub async fn fallback(
             .status(StatusCode::NOT_FOUND)
             .body(Body::empty())
             .unwrap();
+    }
+
+    if let Err(err) = idle_channel.send(subdomain.to_string()).await {
+        tracing::error!(?err, "Failed to send idle channel");
     }
 
     let (owner, project) = match subdomain.rfind('-') {
@@ -359,6 +365,7 @@ pub async fn fallback_middleware(
         pool,
         client,
         domain,
+        idle_channel,
         ..
     }): State<AppState>,
     Host(hostname): Host,
@@ -376,6 +383,10 @@ pub async fn fallback_middleware(
 
     if subdomain.is_empty() {
         return Ok(next.run(req).await);
+    }
+
+    if let Err(err) = idle_channel.send(subdomain.to_string()).await {
+        tracing::error!(?err, "Failed to send idle channel");
     }
 
     let (owner, project) = match subdomain.rfind('-') {
