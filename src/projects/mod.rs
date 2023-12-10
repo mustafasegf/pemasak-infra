@@ -17,6 +17,8 @@ mod project_dashboard;
 mod view_build_log;
 mod web_terminal;
 mod logs;
+mod stop_project;
+mod start_project;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
@@ -32,5 +34,7 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/:owner/:project/terminal/ws", get(web_terminal::ws))
         .route_with_tsr("/:owner/:project/terminal", get(web_terminal::get))
         .route_with_tsr("/:owner/:project/logs", get(logs::get))
+        .route_with_tsr("/:owner/:project/stop", post(stop_project::post))
+        .route_with_tsr("/:owner/:project/start", post(start_project::post))
         .route_layer(middleware::from_fn(auth))
 }
