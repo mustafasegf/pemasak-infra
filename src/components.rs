@@ -28,6 +28,7 @@ pub fn base(
                         evt.detail.isError = false;
                       }}
                     }});
+                    htmx.config.useTemplateFragments = true;
                 "}</script>
 
                 <div class="drawer circle-bg">

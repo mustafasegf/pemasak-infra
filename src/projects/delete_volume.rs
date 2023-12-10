@@ -1,6 +1,6 @@
 use axum::extract::Path;
 use axum::response::Response;
-use bollard::container::{StartContainerOptions, StopContainerOptions};
+use bollard::container::StartContainerOptions;
 use bollard::Docker;
 use bollard::volume::CreateVolumeOptions;
 use hyper::{Body, StatusCode};
