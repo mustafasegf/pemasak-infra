@@ -1,53 +1,32 @@
-use std::fmt;
+use std::collections::HashMap;
 
 use axum::extract::{Path, State};
 use axum::response::Response;
+use bollard::Docker;
+use bytes::Bytes;
+use futures_util::TryStreamExt;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::components::Base;
 use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
-#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
-#[sqlx(type_name = "build_state", rename_all = "lowercase")]
-pub enum BuildState {
-    Pending,
-    Building,
-    Successful,
-    Failed,
-}
-
-impl fmt::Display for BuildState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            BuildState::Pending => write!(f, "Pending"),
-            BuildState::Building => write!(f, "Building"),
-            BuildState::Successful => write!(f, "Successful"),
-            BuildState::Failed => write!(f, "Failed"),
-        }
-    }
-}
-
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState {
-        pool,
-        domain,
-        secure,
-        ..
-    }): State<AppState>,
-    Path((owner, project, build_id)): Path<(String, String, Uuid)>,
+    State(AppState { pool, domain, .. }): State<AppState>,
+    Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
 
+    let delete_path = format!("/{owner}/{project}/delete");
+    let volume_path = format!("/{owner}/{project}/volume/delete");
+
     // check if project exist
-    let _project_record = match sqlx::query!(
-        r#"SELECT projects.id, projects.name AS project, project_owners.name AS owner
+    let project_id = match sqlx::query!(
+        r#"SELECT projects.id
            FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id
            JOIN users_owners ON project_owners.id = users_owners.owner_id
@@ -60,7 +39,7 @@ pub async fn get(
     .fetch_optional(&pool)
     .await
     {
-        Ok(Some(record)) => record,
+        Ok(Some(record)) => record.id,
         Ok(None) => {
             let html = render_to_string(move || {
                 view! {
@@ -90,20 +69,12 @@ pub async fn get(
         }
     };
 
-    let build = match sqlx::query!(
-        r#"SELECT id, project_id, status AS "status: BuildState", created_at, finished_at, log 
-        FROM builds WHERE id = $1
-        ORDER BY created_at DESC"#,
-        build_id
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(record) => record,
+    let docker = match Docker::connect_with_local_defaults() {
         Err(err) => {
+            tracing::error!(?err, "Can't delete project: Failed to connect to docker");
             let html = render_to_string(move || {
                 view! {
-                    <h1> "Failed to query database " {err.to_string() } </h1>
+                    <h1> "Failed to connect to docker" </h1>
                 }
             })
             .into_owned();
@@ -112,20 +83,50 @@ pub async fn get(
                 .body(Body::from(html))
                 .unwrap();
         }
+        Ok(docker) => docker,
     };
 
+    let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
+
+    let logs = docker
+        .logs(
+            &container_name,
+            Some(bollard::container::LogsOptions::<&str> {
+                stdout: true,
+                stderr: true,
+                ..Default::default()
+            }),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|log_output| {
+            let b = match log_output {
+                bollard::container::LogOutput::StdOut { message } => message,
+                bollard::container::LogOutput::StdErr { message } => message,
+                // bollard::container::LogOutput::StdIn { message } => message,
+                _ => Bytes::new(),
+            };
+            String::from_utf8(b.to_vec()).unwrap()
+        })
+        .collect::<Vec<_>>();
+        // .join("");
+
+    // TODO: add env modification
     let html = render_to_string(move || {
         view! {
             <Base is_logged_in={true}>
               <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
 
               <h2 class="text-xl">
-                "Build Log - ID: "{build.id.to_string()}
+                "Logs"
               </h2>
               <div class="w-full mt-4 px-1 mockup-code bg-neutral/40 backdrop-blur-sm">
-                {build.log.split('\n').map(|line| { view!{
-                    <pre><code>{line.to_string()}</code></pre>
+                {logs.into_iter().map(|log| { view!{
+                    <pre><code>{log}</code></pre>
                 }}).collect::<Vec<_>>()}
+                // <pre><code>{log}</code></pre>
               </div>
             </Base>
         }
