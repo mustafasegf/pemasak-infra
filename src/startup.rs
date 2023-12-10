@@ -150,26 +150,23 @@ pub async fn start_docker_container(pool: &PgPool) -> Result<()> {
     .collect::<Vec<String>>();
 
     for project in projects {
-        match docker.inspect_container(&project, None).await {
-            Ok(container) => {
-                if container
-                    .state
-                    .and_then(|state| state.status)
-                    .and_then(|status| {
-                        (status == ContainerStateStatusEnum::EXITED
-                            || status == ContainerStateStatusEnum::DEAD)
-                            .then_some(())
-                    })
-                    .is_some()
-                {
-                    tracing::info!("Starting container {}", project);
-                    docker
-                        .start_container(&project, None::<StartContainerOptions<&str>>)
-                        .await
-                        .unwrap();
-                }
+        if let Ok(container) = docker.inspect_container(&project, None).await {
+            if container
+                .state
+                .and_then(|state| state.status)
+                .and_then(|status| {
+                    (status == ContainerStateStatusEnum::EXITED
+                        || status == ContainerStateStatusEnum::DEAD)
+                        .then_some(())
+                })
+                .is_some()
+            {
+                tracing::info!("Starting container {}", project);
+                docker
+                    .start_container(&project, None::<StartContainerOptions<&str>>)
+                    .await
+                    .unwrap();
             }
-            Err(_) => {}
         };
     }
 

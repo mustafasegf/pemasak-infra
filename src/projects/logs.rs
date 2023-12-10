@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use axum::extract::{Path, State};
 use axum::response::Response;
 use bollard::Docker;
@@ -21,11 +19,8 @@ pub async fn get(
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
 
-    let delete_path = format!("/{owner}/{project}/delete");
-    let volume_path = format!("/{owner}/{project}/volume/delete");
-
     // check if project exist
-    let project_id = match sqlx::query!(
+    let _project_id = match sqlx::query!(
         r#"SELECT projects.id
            FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id

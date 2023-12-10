@@ -14,19 +14,19 @@ use crate::{auth::Auth, startup::AppState};
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
 #[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
-    PENDING,
-    BUILDING,
-    SUCCESSFUL,
-    FAILED,
+    Pending,
+    Building,
+    Successful,
+    Failed,
 }
 
 impl fmt::Display for BuildState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            BuildState::PENDING => write!(f, "Pending"),
-            BuildState::BUILDING => write!(f, "Building"),
-            BuildState::SUCCESSFUL => write!(f, "Successful"),
-            BuildState::FAILED => write!(f, "Failed"),
+            BuildState::Pending => write!(f, "Pending"),
+            BuildState::Building => write!(f, "Building"),
+            BuildState::Successful => write!(f, "Successful"),
+            BuildState::Failed => write!(f, "Failed"),
         }
     }
 }
