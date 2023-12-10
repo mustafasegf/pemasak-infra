@@ -1,5 +1,3 @@
-use std::fmt;
-
 use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
@@ -12,7 +10,7 @@ use crate::components::Base;
 use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
-#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
 #[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
     Pending,
@@ -21,16 +19,6 @@ pub enum BuildState {
     Failed,
 }
 
-impl fmt::Display for BuildState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            BuildState::Pending => write!(f, "Pending"),
-            BuildState::Building => write!(f, "Building"),
-            BuildState::Successful => write!(f, "Successful"),
-            BuildState::Failed => write!(f, "Failed"),
-        }
-    }
-}
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(

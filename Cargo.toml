@@ -47,6 +47,7 @@ secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = { version = "1.0.108" , features = ["raw_value"] }
 strip-ansi-escapes = "0.2.0"
+strum = { version = "0.25.0", features = ["strum_macros", "derive"] }
 thiserror = "1.0.50"
 time = { version = "0.3.30", features=["macros", "formatting", "local-offset"]}
 tokio = { version = "1.34.0", features = ["full"] }
