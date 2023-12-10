@@ -1,3 +1,4 @@
+use bollard::Docker;
 use hyper::{client::HttpConnector, Body};
 use pemasak_infra::{
     configuration,
@@ -5,8 +6,10 @@ use pemasak_infra::{
     startup, telemetry,
 };
 use sqlx::postgres::PgPoolOptions;
-use std::{net::TcpListener, path::Path, process};
-use tokio::fs::OpenOptions;
+use std::{
+    collections::HashMap, net::TcpListener, path::Path, process, sync::Arc, time::SystemTime,
+};
+use tokio::{fs::OpenOptions, sync::RwLock};
 
 type Client = hyper::client::Client<HttpConnector, Body>;
 
@@ -108,8 +111,97 @@ async fn main() {
 
     let (build_queue, build_channel) = BuildQueue::new(config.build.max, pool.clone());
 
-    tokio::spawn(async move {
-        build_queue_handler(build_queue).await;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
+
+    // TODO: maybe move this to statup
+    tokio::spawn({
+        let tx = tx.clone();
+        async move {
+            build_queue_handler(build_queue, tx).await;
+        }
+    });
+
+    tokio::spawn({
+        let pool = pool.clone();
+        async move {
+            let idle_map = Arc::new(RwLock::new(HashMap::new()));
+            // add all projects to the idle map
+            let now = SystemTime::now();
+            let projects = sqlx::query!(
+                r#"
+                    SELECT domains.name
+                    FROM domains 
+                    JOIN projects on domains.project_id = projects.id 
+                    WHERE projects.state = 'running'
+                "#
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+            let mut map = idle_map.write().await;
+            for project in projects {
+                tracing::info!("Adding {} to idle map", project.name);
+                map.insert(project.name, now);
+            }
+            drop(map);
+
+            tokio::spawn({
+                let idle_map = idle_map.clone();
+                let docker = Docker::connect_with_local_defaults().unwrap();
+
+                async move {
+                    loop {
+                        let now = SystemTime::now();
+
+                        for (container_name, last_active) in idle_map.write().await.iter_mut() {
+                            // if it's been idle for more than 5 minutes, do something
+                            if now.duration_since(*last_active).unwrap().as_secs() > 5 {
+                                tracing::info!("Idle for more than 5 minutes: {}", container_name);
+                                if let Err(err) = docker.stop_container(container_name, None).await
+                                {
+                                    tracing::error!(?err, "Failed to stop container");
+                                }
+                                let db_name = format!("{}-db", container_name);
+                                if let Err(err) = docker.stop_container(&db_name, None).await {
+                                    tracing::error!(?err, "Failed to stop container");
+                                }
+
+                                if let Err(err) = sqlx::query!(
+                                    r#"
+                                        WITH project AS (
+                                            SELECT projects.id
+                                            FROM projects
+                                            JOIN domains ON projects.id = domains.project_id
+                                            WHERE domains.name = $1
+                                        )
+                                        UPDATE projects
+                                        SET state = 'idle'
+                                        WHERE id = (SELECT id FROM project)
+                                        
+                                    "#,
+                                    container_name
+                                )
+                                .execute(&pool)
+                                .await
+                                {
+                                    tracing::error!(?err, "Failed to update project state");
+                                }
+
+                                idle_map.write().await.remove(container_name);
+                            }
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
+            });
+
+            while let Some(msg) = rx.recv().await {
+                tracing::info!("Received message: {}", msg);
+                let now = SystemTime::now();
+                idle_map.write().await.insert(msg, now);
+            }
+        }
     });
 
     let state = startup::AppState {
@@ -121,6 +213,7 @@ async fn main() {
         build_channel,
         pool,
         secure: config.application.secure,
+        idle_channel: tx,
     };
 
     let addr_string = config.address_string();

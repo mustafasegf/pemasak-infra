@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                                        WITH project AS (\n                                            SELECT projects.id\n                                            FROM projects\n                                            JOIN domains ON projects.id = domains.project_id\n                                            WHERE domains.name = $1\n                                        )\n                                        UPDATE projects\n                                        SET state = 'idle'\n                                        WHERE id = (SELECT id FROM project)\n                                        \n                                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6348ac034ac6d018cc54abe14327cf1cf0dc82603b98efa520ac3e7804afa113"
+}

@@ -260,6 +260,7 @@ pub async fn process_task_poll(
     waiting_set: ConcurrentMutex<HashSet<String>>,
     build_count: Arc<AtomicUsize>,
     pool: PgPool,
+    idle_channel: Sender<String>,
 ) {
     loop {
         let mut waiting_queue = waiting_queue.lock().await;
@@ -274,6 +275,12 @@ pub async fn process_task_poll(
             };
             waiting_set.remove(&build_item.container_name);
 
+            let container_name = build_item.container_name.clone();
+            let idle_channel = idle_channel.clone();
+            if let Err(err) = idle_channel.send(container_name.clone()).await {
+                tracing::error!(?err, "Failed to send idle message");
+            };
+
             {
                 let build_count = Arc::clone(&build_count);
                 let pool = pool.clone();
@@ -286,6 +293,10 @@ pub async fn process_task_poll(
                             message,
                             inner_error,
                         }) => tracing::error!(err = ?inner_error, message),
+                    };
+
+                    if let Err(err) = idle_channel.send(container_name.clone()).await {
+                        tracing::error!(?err, "Failed to send idle message");
                     };
 
                     build_count.fetch_add(1, Ordering::SeqCst);
@@ -373,14 +384,21 @@ pub async fn process_task_enqueue(
     }
 }
 
-pub async fn build_queue_handler(build_queue: BuildQueue) {
+pub async fn build_queue_handler(build_queue: BuildQueue, idle_channel: Sender<String>) {
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
         let waiting_set = Arc::clone(&build_queue.waiting_set);
         let pool = build_queue.pg_pool.clone();
 
         tokio::spawn(async move {
-            process_task_poll(waiting_queue, waiting_set, build_queue.build_count, pool).await;
+            process_task_poll(
+                waiting_queue,
+                waiting_set,
+                build_queue.build_count,
+                pool,
+                idle_channel,
+            )
+            .await;
         });
     }
     {
