@@ -1,5 +1,6 @@
 CREATE TYPE role AS ENUM ('admin', 'asdos', 'user');
 CREATE TYPE build_state AS ENUM ('pending', 'building', 'successful', 'failed');
+CREATE TYPE project_state AS ENUM ('empty', 'running', 'stopped', 'idle');
 
 CREATE TABLE users (
   id          UUID          NOT NULL,
@@ -45,7 +46,7 @@ CREATE TABLE projects (
   owner_id    UUID          NOT NULL,
   name        TEXT          NOT NULL,
   envs        JSONB         NOT NULL default '{}',
-  state       TEXT          NOT NULL default 'empty',
+  state       project_state NOT NULL default 'empty',
   created_at  TIMESTAMPTZ   NOT NULL default now(),
   updated_at  TIMESTAMPTZ   NOT NULL default now(),
   deleted_at  TIMESTAMPTZ,

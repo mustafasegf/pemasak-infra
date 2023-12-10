@@ -1,4 +1,4 @@
-h1:/HWFCsbh0XyrBqXbT+s8b2FyFRFlRMLIC7N5LxL8X9M=
+h1:IoqQf4rKb/1jm+ka6wq/KXBNJzP9DECtpoxUbtHuZ2U=
 20231007150016_init.sql h1:rqZJtLRKZS11n4sUwPLU5ONxi0yrVSjwI+u2vMD0GZA=
 20231010140913_add_network_info_on_domains.sql h1:+0iRnWybkPR7Ql7MsqOEzYWhIMaRy5aYEeou/rxv6zU=
 20231010141823_change_id_in_domains.sql h1:Tpm0+DQ0C9399qQCnj2Z/WI8i6t/hgoGQG+BhpWTy6Q=
@@ -7,5 +7,4 @@ h1:/HWFCsbh0XyrBqXbT+s8b2FyFRFlRMLIC7N5LxL8X9M=
 20231101071214_create_organization_schema.sql h1:Ebw83RJsTQ7UPzju7E/M38Mbg/PMr90MVrSoB90CPl0=
 20231105094142_drop_organization_schema.sql h1:6x8W1KZ1r9Nn17vt1/jRQeIXhGt//x+wRtcUsi2dK5k=
 20231208140848_add_envs_to_project.sql h1:T+i/F3r1D0y9zaVcM/IfSy8RveTchclH7v8dCXsy/+E=
-20231209132301_add_state_to_project.sql h1:uZiQOtLHv+EuIRsMq1ZI5uAHEV725T6+bDE8uOyNhaw=
-20231210045538_change_default_state_to_stopped.sql h1:NHOAoRMWGJ9A0/qfueaYi6hLIjMhNdTKQk/g1lQm1Ec=
+20231210061157_add_state_to_project.sql h1:L+JwYM0LiH6nHMJUTwvCQ/087FPXebMwB1n0x8incC4=

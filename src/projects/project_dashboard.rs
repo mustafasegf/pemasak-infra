@@ -1,5 +1,3 @@
-use std::fmt;
-
 use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
@@ -11,7 +9,7 @@ use crate::components::Base;
 use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
-#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
 #[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
     Pending,
@@ -20,15 +18,14 @@ pub enum BuildState {
     Failed,
 }
 
-impl fmt::Display for BuildState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            BuildState::Pending => write!(f, "Pending"),
-            BuildState::Building => write!(f, "Building"),
-            BuildState::Successful => write!(f, "Successful"),
-            BuildState::Failed => write!(f, "Failed"),
-        }
-    }
+#[derive(Default, Serialize, Deserialize, Debug, sqlx::Type, strum::Display)]
+#[sqlx(type_name = "build_state", rename_all = "lowercase")]
+pub enum ProjectState {
+    #[default]
+    Empty,
+    Running,
+    Stopped,
+    Idle,
 }
 
 #[tracing::instrument(skip(auth, pool))]
@@ -46,7 +43,7 @@ pub async fn get(
 
     // check if project exist
     let project_record = match sqlx::query!(
-        r#"SELECT projects.id, projects.name AS project, project_owners.name AS owner
+        r#"SELECT projects.id, projects.state
            FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id
            JOIN users_owners ON project_owners.id = users_owners.owner_id
@@ -182,7 +179,16 @@ pub async fn get(
             <Base is_logged_in={true}>
                 <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
 
-                <h2 class="text-xl">
+                <div class="flex flex-row gap-4 w-full">
+                    <h2 class="text-xl">"State: "{project_record.state.clone()}</h2>
+                    // {match project_record.state {
+                    //     
+                    //
+                    // }}
+                    
+                </div>
+
+                <h2 class="text-xl pt-8">
                   Builds
                 </h2>
                 <div class="flex flex-col gap-4 w-full mt-4">

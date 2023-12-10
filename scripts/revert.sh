@@ -25,3 +25,5 @@ fi
 atlas migrate set $@ \
   --url "$database_url" \
   --dir "file://migrations"
+
+atlas migrate hash
