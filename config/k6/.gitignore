@@ -1,3 +1,4 @@
 data.csv
 k6
 clone/*/
+.env
