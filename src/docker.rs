@@ -246,6 +246,7 @@ pub async fn build_docker(
         tracing::debug!(release = ?release, web = ?web, "Procfile");
 
         if let Some(release) = release {
+            let container_release_name = format!("{}-release", container_name);
             let mut config = config.clone();
             config.host_config = Some(HostConfig {
                 restart_policy: Some(RestartPolicy {
@@ -260,7 +261,7 @@ pub async fn build_docker(
             if let Err(err) = docker
                 .create_container(
                     Some(CreateContainerOptions {
-                        name: container_name.clone(),
+                        name: &container_release_name,
                         platform: None,
                     }),
                     config,
@@ -280,7 +281,7 @@ pub async fn build_docker(
                 .connect_network(
                     &network_name,
                     ConnectNetworkOptions {
-                        container: container_name.clone(),
+                        container: container_release_name.clone(),
                         ..Default::default()
                     },
                 )
@@ -291,7 +292,7 @@ pub async fn build_docker(
                 })?;
 
             if let Err(err) = docker
-                .start_container(container_name, None::<StartContainerOptions<&str>>)
+                .start_container(&container_release_name, None::<StartContainerOptions<&str>>)
                 .await
             {
                 tracing::error!(?err, "Failed to start container: {}", err);
@@ -302,14 +303,12 @@ pub async fn build_docker(
                 }
             }
 
-            // wait until container is stopped
-            if let Err(err) = docker
-                .wait_container(container_name, None::<WaitContainerOptions<String>>)
-                .try_collect::<Vec<_>>()
+            remove_container(&docker, &container_release_name)
                 .await
-            {
-                tracing::error!(?err, "Container Stoped Have Error: {}", err);
-            }
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to remove container: {}", err);
+                    err
+                })?;
         }
 
         if let Some(web) = web {
@@ -644,10 +643,12 @@ pub async fn create_db(
             err
         })?;
 
-    start_container(&docker, db_name, true).await.map_err(|err| {
-        tracing::error!(?err, "Failed to start container: {}", err);
-        err
-    })?;
+    start_container(&docker, db_name, true)
+        .await
+        .map_err(|err| {
+            tracing::error!(?err, "Failed to start container: {}", err);
+            err
+        })?;
 
     // connect db container to network
     docker
