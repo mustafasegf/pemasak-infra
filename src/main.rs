@@ -158,6 +158,11 @@ async fn main() {
                         for (container_name, last_active) in idle_map.write().await.iter_mut() {
                             // if it's been idle for more than idle_time, stop the container
                             if now.duration_since(*last_active).unwrap().as_secs() > idle_time {
+                                tracing::debug!(
+                                    ?container_name,
+                                    "Idling container {}",
+                                    container_name
+                                );
                                 if let Err(err) = docker.stop_container(container_name, None).await
                                 {
                                     tracing::error!(?err, "Failed to stop container");
