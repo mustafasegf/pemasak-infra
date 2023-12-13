@@ -328,6 +328,56 @@ pub async fn fallback(
                     tracing::debug!("response");
                     res
                 }
+                Err(err) if err.is_connect() => {
+                    // check the ip for the container
+                    // TODO: remove unwrap
+                    let docker = Docker::connect_with_local_defaults().unwrap();
+                    let container = docker.inspect_container(subdomain, None).await.unwrap();
+                    let ip = match container
+                        .network_settings
+                        .and_then(|network| network.networks)
+                        .and_then(|networks| {
+                            networks
+                                .get(format!("{}-network", subdomain).as_str())
+                                .cloned()
+                        })
+                        .and_then(|network| network.ipam_config)
+                        .and_then(|ipam| ipam.ipv4_address)
+                    {
+                        Some(ip) => ip,
+                        None => {
+                            tracing::error!("Can't get ip: Failed to get ip");
+                            return Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::empty())
+                                .unwrap();
+                        }
+                    };
+
+                    if let Err(err) = sqlx::query!(
+                        r#"
+                                UPDATE domains
+                                SET docker_ip = $1
+                                WHERE name = $2
+                            "#,
+                        ip,
+                        subdomain
+                    )
+                    .execute(&pool)
+                    .await
+                    {
+                        tracing::error!(?err, "Can't update domain: Failed to update domain");
+                        return Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::empty())
+                            .unwrap();
+                    };
+
+                    Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Body::empty())
+                        .unwrap()
+                }
                 Err(err) => {
                     tracing::error!(?err, "Can't access container: Failed request to container");
 
@@ -495,8 +545,59 @@ pub async fn fallback_middleware(
             );
             let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
             *req.uri_mut() = Uri::try_from(uri).unwrap();
+
             match client.request(req).await {
                 Ok(res) => Err(res),
+                Err(err) if err.is_connect() => {
+                    // check the ip for the container
+                    // TODO: remove unwrap
+                    let docker = Docker::connect_with_local_defaults().unwrap();
+                    let container = docker.inspect_container(subdomain, None).await.unwrap();
+                    let ip = match container
+                        .network_settings
+                        .and_then(|network| network.networks)
+                        .and_then(|networks| {
+                            networks
+                                .get(format!("{}-network", subdomain).as_str())
+                                .cloned()
+                        })
+                        .and_then(|network| network.ipam_config)
+                        .and_then(|ipam| ipam.ipv4_address)
+                    {
+                        Some(ip) => ip,
+                        None => {
+                            tracing::error!("Can't get ip: Failed to get ip");
+                            return Err(Response::builder()
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::empty())
+                                .unwrap());
+                        }
+                    };
+
+                    if let Err(err) = sqlx::query!(
+                        r#"
+                                UPDATE domains
+                                SET docker_ip = $1
+                                WHERE name = $2
+                            "#,
+                        ip,
+                        subdomain
+                    )
+                    .execute(&pool)
+                    .await
+                    {
+                        tracing::error!(?err, "Can't update domain: Failed to update domain");
+                        return Err(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::empty())
+                            .unwrap());
+                    };
+
+                    return Err(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Body::empty())
+                        .unwrap());
+                }
                 Err(err) => {
                     tracing::error!(?err, "Can't access container: Failed request to container");
 
