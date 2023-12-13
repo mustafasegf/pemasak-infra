@@ -1,22 +1,22 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT domains.name\n           FROM domains\n           WHERE domains.project_id = $1\n        ",
+  "query": "select subnet from domains where subnet = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "name",
+        "name": "subnet",
         "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "0480a383036114513ca5b192da1bc9501c29fadcf104424ba1b1f71fa55e0681"
+  "hash": "46e7cb852320e8258a0d2c98f6ac3c41ae8a43241768655eb3fff32a504e2cd3"
 }
