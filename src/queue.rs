@@ -154,7 +154,11 @@ pub async fn trigger_build(
 
     // TODO: Differentiate types of errors returned by build_docker (ex: ImageBuildError, NetworkCreateError, ContainerAttachError)
     let DockerContainer {
-        ip, port, db_url, ..
+        ip,
+        port,
+        db_url,
+        subnet,
+        ..
     } = match build_docker(&repo, &container_name, &container_src, pool.clone()).await {
         Ok(result) => {
             if let Err(err) = sqlx::query!(
@@ -212,7 +216,7 @@ pub async fn trigger_build(
 
     // TODO: check why why need this
     let subdomain = match sqlx::query!(
-        r#"SELECT domains.name
+        r#"SELECT domains.name, domains.subnet
            FROM domains
            WHERE domains.project_id = $1
         "#,
@@ -221,19 +225,35 @@ pub async fn trigger_build(
     .fetch_optional(&pool)
     .await
     {
-        Ok(Some(subdomain)) => Ok(subdomain.name),
+        Ok(Some(subdomain)) => {
+            if subdomain.subnet == "0.0.0.0/0" {
+                sqlx::query!(
+                    "UPDATE domains SET subnet = $1 WHERE project_id = $2",
+                    subnet,
+                    project.id
+                )
+                .execute(&pool)
+                .await
+                .map_err(|err| BuildError {
+                    message: "Failed to update domain subnet: Failed to query database".to_string(),
+                    inner_error: Some(err.into()),
+                })?;
+            }
+            Ok(subdomain.name)
+        }
         Ok(None) => {
             let id = Uuid::from(Ulid::new());
             let subdomain = sqlx::query!(
-                r#"INSERT INTO domains (id, project_id, name, port, docker_ip, db_url)
-                   VALUES ($1, $2, $3, $4, $5, $6)
+                r#"INSERT INTO domains (id, project_id, name, port, docker_ip, db_url, subnet)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
                 id,
                 project.id,
                 container_name,
                 port,
                 ip,
-                db_url
+                db_url,
+                subnet
             )
             .execute(&pool)
             .await;

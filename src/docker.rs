@@ -1,14 +1,18 @@
 use std::process::Output;
+use std::str::FromStr;
 use std::time::Duration;
 use std::{collections::HashMap, process::Stdio};
 
 use anyhow::Result;
 use bollard::container::WaitContainerOptions;
-use bollard::service::{HealthConfig, HealthStatusEnum, Network};
+use bollard::network::CreateNetworkOptions;
+use bollard::service::{
+    EndpointIpamConfig, EndpointSettings, HealthConfig, HealthStatusEnum, Network,
+};
 use bollard::{
     container::{Config, CreateContainerOptions, StartContainerOptions},
     image::TagImageOptions,
-    network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
+    network::{ConnectNetworkOptions, InspectNetworkOptions},
     service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
     volume::CreateVolumeOptions,
     Docker,
@@ -31,6 +35,7 @@ pub struct DockerContainer {
     pub port: i32,
     pub build_log: String,
     pub db_url: String,
+    pub subnet: String,
 }
 
 #[tracing::instrument(skip(pool))]
@@ -140,11 +145,35 @@ pub async fn build_docker(
         _ => {}
     };
 
-    let network = create_network(&docker, &network_name).await?;
+    let network = create_network(&docker, pool.clone(), container_name, &network_name).await?;
+    // TODO: it would be nice if we don't use unwrap
+    let subnet = network
+        .ipam
+        .and_then(|ipam| ipam.config)
+        .and_then(|config| config.into_iter().next())
+        .and_then(|config| config.subnet.clone())
+        .ok_or_else(|| {
+            tracing::error!("No subnet found for network {}", network_name);
+            anyhow::anyhow!("No subnet found for network {}", network_name)
+        })?;
+
+    let mut ip_range = ipnet::Ipv4Net::from_str(&subnet).unwrap().hosts();
+    let _gateway = ip_range.next();
+
+    let container_ip = ip_range.next().unwrap().to_string();
 
     // create database container if it doesn't exist
     let db_url = match db_container_exist {
-        false => create_db(&docker, &db_name, &volume_name, &network_name).await?,
+        false => {
+            create_db(
+                &docker,
+                &db_name,
+                &volume_name,
+                &network_name,
+                &mut ip_range,
+            )
+            .await?
+        }
         true => {
             match sqlx::query!(
                 r#"SELECT db_url FROM domains
@@ -163,7 +192,14 @@ pub async fn build_docker(
 
                     remove_container(&docker, &db_name).await?;
                     remove_volume(&docker, &volume_name).await?;
-                    create_db(&docker, &db_name, &volume_name, &network_name).await?
+                    create_db(
+                        &docker,
+                        &db_name,
+                        &volume_name,
+                        &network_name,
+                        &mut ip_range,
+                    )
+                    .await?
                 }
                 Err(err) => {
                     tracing::error!(?err, "Failed to query database: {}", err);
@@ -206,8 +242,6 @@ pub async fn build_docker(
             format!("{}={}", key, value)
         })
         .collect::<Vec<_>>();
-
-    tracing::warn!(?envs, "envs");
 
     let mut config = Config {
         image: Some(image_name.clone()),
@@ -330,15 +364,19 @@ pub async fn build_docker(
             err
         })?;
 
-    tracing::info!("create response-> {:#?}", res);
-
     // connect container to network
     docker
         .connect_network(
             &network_name,
             ConnectNetworkOptions {
                 container: container_name.clone(),
-                ..Default::default()
+                endpoint_config: EndpointSettings {
+                    ipam_config: Some(EndpointIpamConfig {
+                        ipv4_address: Some(container_ip),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
             },
         )
         .await
@@ -358,7 +396,7 @@ pub async fn build_docker(
     //inspect network
     let network_inspect = docker
         .inspect_network(
-            &network.id.unwrap(),
+            &network_name,
             Some(InspectNetworkOptions::<&str> {
                 verbose: true,
                 ..Default::default()
@@ -404,6 +442,7 @@ pub async fn build_docker(
         port,
         build_log,
         db_url,
+        subnet,
     })
 }
 
@@ -538,46 +577,281 @@ pub async fn remove_volume(
     Ok(())
 }
 
-pub async fn create_network(docker: &Docker, network_name: &str) -> Result<Network> {
+pub async fn create_network(
+    docker: &Docker,
+    pool: PgPool,
+    container_name: &str,
+    network_name: &str,
+) -> Result<Network> {
     // check if network exists
     let network = docker
-        .list_networks(Some(ListNetworksOptions {
-            filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
-        }))
-        .await
-        .map_err(|err| {
-            tracing::error!(?err, "Failed to list networks: {}", err);
-            err
-        })?
-        .first()
-        .map(|n| n.to_owned());
+        .inspect_network(
+            &network_name,
+            Some(InspectNetworkOptions::<&str> {
+                verbose: true,
+                ..Default::default()
+            }),
+        )
+        .await;
 
     // create network if it doesn't exist
     match network {
-        Some(network) => {
+        Ok(network) => {
             tracing::info!(id = ?network.id, "Use existing network id {:?}", network.id);
+
+            // check if subnet is predefined
+            match sqlx::query!(
+                r#"select subnet from domains where name = $1 and subnet = '0.0.0.0/0' "#,
+                container_name,
+            )
+            .fetch_optional(&pool)
+            .await
+            {
+                Ok(None) => {}
+                Ok(Some(_)) => {
+                    tracing::debug!("Subnet is not predefined");
+
+                    let containers = network
+                        .clone()
+                        .containers
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(_, container)| container)
+                        .collect::<Vec<_>>();
+
+                    for container in containers.iter() {
+                        docker
+                            .disconnect_network(
+                                &network_name,
+                                bollard::network::DisconnectNetworkOptions {
+                                    container: container.name.as_ref().unwrap(),
+                                    force: true,
+                                },
+                            )
+                            .await
+                            .map_err(|err| {
+                                tracing::error!(?err, "Failed to disconnect network: {}", err);
+                                err
+                            })?;
+                    }
+
+                    docker.remove_network(&network_name).await.map_err(|err| {
+                        tracing::error!(?err, "Failed to remove network: {}", err);
+                        err
+                    })?;
+
+                    let subnet = network
+                        .clone()
+                        .ipam
+                        .and_then(|ipam| ipam.config)
+                        .and_then(|configs| configs.into_iter().next())
+                        .and_then(|config| config.subnet.clone())
+                        .ok_or_else(|| {
+                            tracing::error!("No subnet found for network {}", network_name);
+                            anyhow::anyhow!("No subnet found for network {}", network_name)
+                        })?;
+
+                    let subnet_string = subnet.to_string();
+                    let gateway = ipnet::Ipv4Net::from_str(&subnet_string)
+                        .unwrap()
+                        .hosts()
+                        .next()
+                        .unwrap()
+                        .to_string();
+                    let mut ip_range = ipnet::Ipv4Net::from_str(&subnet_string).unwrap().hosts();
+
+                    // remove gateway
+                    ip_range.next();
+
+                    docker
+                        .create_network(CreateNetworkOptions {
+                            name: network_name.clone(),
+                            ipam: bollard::models::Ipam {
+                                config: Some(vec![bollard::models::IpamConfig {
+                                    subnet: Some(subnet_string),
+                                    gateway: Some(gateway),
+                                    ..Default::default()
+                                }]),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .await
+                        .map_err(|err| {
+                            tracing::error!(?err, "Failed to create network: {}", err);
+                            err
+                        })?;
+
+                    let new_network = docker
+                        .inspect_network(
+                            &network_name,
+                            Some(InspectNetworkOptions::<&str> {
+                                verbose: true,
+                                ..Default::default()
+                            }),
+                        )
+                        .await
+                        .map_err(|err| {
+                            tracing::error!(?err, "Failed to inspect network: {}", err);
+                            err
+                        })?;
+
+                    let new_subnet = new_network
+                        .clone()
+                        .ipam
+                        .and_then(|ipam| ipam.config)
+                        .and_then(|configs| configs.into_iter().next())
+                        .and_then(|config| config.subnet.clone())
+                        .ok_or_else(|| {
+                            tracing::error!("No subnet found for network {}", network_name);
+                            anyhow::anyhow!("No subnet found for network {}", network_name)
+                        })?;
+
+                    // make sure the container we want to connect is the first one
+
+                    let index = containers
+                        .iter()
+                        .enumerate()
+                        .find(|(_, &ref e)| e.name.as_ref().unwrap() == container_name)
+                        .map(|(index, _)| index)
+                        .unwrap_or_default();
+
+                    let containers = match index {
+                        0 => containers,
+                        index => containers[index..=index]
+                            .iter()
+                            .cloned()
+                            .chain(containers[..index].iter().cloned())
+                            .chain(containers[index + 1..].iter().cloned())
+                            .collect::<Vec<_>>(),
+                    };
+
+                    for container in containers {
+                        docker
+                            .connect_network(
+                                &network_name,
+                                ConnectNetworkOptions {
+                                    container: container.name.unwrap(),
+                                    endpoint_config: EndpointSettings {
+                                        ipam_config: Some(EndpointIpamConfig {
+                                            ipv4_address: Some(container.ipv4_address.unwrap()),
+                                            ..Default::default()
+                                        }),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                },
+                            )
+                            .await
+                            .map_err(|err| {
+                                tracing::error!(?err, "Failed to connect network: {}", err);
+                                err
+                            })?;
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(?err, "Failed to query database: {}", err);
+                    return Err(err.into());
+                }
+            }
             Ok(network)
         }
-        None => {
-            let options = bollard::network::CreateNetworkOptions {
-                name: network_name.clone(),
-                ..Default::default()
-            };
-            let res = docker.create_network(options).await.map_err(|err| {
-                tracing::error!(?err, "Failed to create network: {}", err);
-                err
-            })?;
-            tracing::info!("create network response-> {:#?}", res);
+        Err(_) => {
+            loop {
+                docker
+                    .create_network(CreateNetworkOptions {
+                        name: network_name.clone(),
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|err| {
+                        tracing::error!(?err, "Failed to create network: {}", err);
+                        err
+                    })?;
 
-            let network = docker
-                .list_networks(Some(ListNetworksOptions {
-                    filters: HashMap::from([("name".to_string(), vec![network_name.to_string()])]),
-                }))
-                .await?
-                .first()
-                .map(|n| n.to_owned())
-                .ok_or(anyhow::anyhow!("No network found after make one???"))?;
-            Ok(network)
+                let network = docker
+                    .inspect_network(
+                        &network_name,
+                        Some(InspectNetworkOptions::<&str> {
+                            verbose: true,
+                            ..Default::default()
+                        }),
+                    )
+                    .await
+                    .map_err(|err| {
+                        tracing::error!(?err, "Failed to inspect network: {}", err);
+                        err
+                    })?;
+
+                let subnet = network
+                    .clone()
+                    .ipam
+                    .and_then(|ipam| ipam.config)
+                    .and_then(|configs| configs.into_iter().next())
+                    .and_then(|config| config.subnet.clone())
+                    .ok_or_else(|| {
+                        tracing::error!("No subnet found for network {}", network_name);
+                        anyhow::anyhow!("No subnet found for network {}", network_name)
+                    })?;
+
+                let subnet_string = subnet.to_string();
+
+                let gateway = ipnet::Ipv4Net::from_str(&subnet_string)
+                    .unwrap()
+                    .hosts()
+                    .next()
+                    .unwrap()
+                    .to_string();
+
+                // check if subnet is already used in db
+                match sqlx::query!(
+                    r#"select subnet from domains where subnet = $1"#,
+                    subnet_string,
+                )
+                .fetch_optional(&pool)
+                .await
+                {
+                    Ok(Some(_)) => {
+                        tracing::debug!("Subnet {} is already used", subnet_string);
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                    Ok(None) => {
+                        tracing::debug!("Subnet {} is not used", subnet_string);
+                    }
+                    Err(err) => {
+                        tracing::error!(?err, "Failed to query database: {}", err);
+                        return Err(err.into());
+                    }
+                }
+
+                // delete network and create again with pre-defined subnet
+                docker.remove_network(&network_name).await.map_err(|err| {
+                    tracing::error!(?err, "Failed to remove network: {}", err);
+                    err
+                })?;
+
+                docker
+                    .create_network(CreateNetworkOptions {
+                        name: network_name.clone(),
+                        ipam: bollard::models::Ipam {
+                            config: Some(vec![bollard::models::IpamConfig {
+                                subnet: Some(subnet_string),
+                                gateway: Some(gateway),
+                                ..Default::default()
+                            }]),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|err| {
+                        tracing::error!(?err, "Failed to create network: {}", err);
+                        err
+                    })?;
+
+                break Ok(network);
+            }
         }
     }
 }
@@ -587,6 +861,7 @@ pub async fn create_db(
     db_name: &str,
     volume_name: &str,
     network_name: &str,
+    ip_range: &mut ipnet::Ipv4AddrRange,
 ) -> Result<String> {
     let mut rng = rand::rngs::StdRng::from_entropy();
     let username = (0..10)
@@ -650,13 +925,20 @@ pub async fn create_db(
             err
         })?;
 
+    let db_ip = ip_range.next().unwrap().to_string();
     // connect db container to network
     docker
         .connect_network(
             network_name,
             ConnectNetworkOptions {
                 container: db_name.clone(),
-                ..Default::default()
+                endpoint_config: EndpointSettings {
+                    ipam_config: Some(EndpointIpamConfig {
+                        ipv4_address: Some(db_ip.clone()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
             },
         )
         .await
