@@ -5,7 +5,7 @@ use std::{collections::HashMap, process::Stdio};
 
 use anyhow::Result;
 use bollard::container::WaitContainerOptions;
-use bollard::network::CreateNetworkOptions;
+use bollard::network::{CreateNetworkOptions, DisconnectNetworkOptions};
 use bollard::service::{
     EndpointIpamConfig, EndpointSettings, HealthConfig, HealthStatusEnum, Network,
 };
@@ -157,10 +157,15 @@ pub async fn build_docker(
             anyhow::anyhow!("No subnet found for network {}", network_name)
         })?;
 
+    tracing::warn!(?subnet, "Subnet");
+
     let mut ip_range = ipnet::Ipv4Net::from_str(&subnet).unwrap().hosts();
     let _gateway = ip_range.next();
 
+    tracing::warn!(?_gateway, "gateway");
     let container_ip = ip_range.next().unwrap().to_string();
+
+    tracing::warn!(?container_ip, "container_ip");
 
     // create database container if it doesn't exist
     let db_url = match db_container_exist {
@@ -316,7 +321,13 @@ pub async fn build_docker(
                     &network_name,
                     ConnectNetworkOptions {
                         container: container_release_name.clone(),
-                        ..Default::default()
+                        endpoint_config: EndpointSettings {
+                            ipam_config: Some(EndpointIpamConfig {
+                                ipv4_address: Some(container_ip.clone()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
                     },
                 )
                 .await
@@ -336,6 +347,20 @@ pub async fn build_docker(
                     remove_volume(&docker, &volume_name).await?;
                 }
             }
+
+            docker
+                .disconnect_network(
+                    &network_name,
+                    DisconnectNetworkOptions {
+                        container: &container_release_name,
+                        force: true,
+                    },
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!(?err, "Failed to disconnect network: {}", err);
+                    err
+                })?;
 
             remove_container(&docker, &container_release_name)
                 .await
@@ -407,6 +432,8 @@ pub async fn build_docker(
             tracing::error!(?err, "Failed to inspect network: {}", err);
             err
         })?;
+
+    tracing::info!("Network inspect {:#?}", network_inspect);
 
     let network_container = network_inspect
         .containers
@@ -598,6 +625,7 @@ pub async fn create_network(
     match network {
         Ok(network) => {
             tracing::info!(id = ?network.id, "Use existing network id {:?}", network.id);
+            tracing::warn!(?network, "Use existing network {:?}", network);
 
             // check if subnet is predefined
             match sqlx::query!(
@@ -607,9 +635,11 @@ pub async fn create_network(
             .fetch_optional(&pool)
             .await
             {
-                Ok(None) => {}
+                Ok(None) => {
+                    tracing::error!("dafuq");
+                }
                 Ok(Some(_)) => {
-                    tracing::debug!("Subnet is not predefined");
+                    tracing::warn!("Subnet is not predefined");
 
                     let containers = network
                         .clone()
@@ -623,7 +653,7 @@ pub async fn create_network(
                         docker
                             .disconnect_network(
                                 &network_name,
-                                bollard::network::DisconnectNetworkOptions {
+                                DisconnectNetworkOptions {
                                     container: container.name.as_ref().unwrap(),
                                     force: true,
                                 },
@@ -696,6 +726,8 @@ pub async fn create_network(
                             err
                         })?;
 
+                    tracing::warn!(?new_network, "Use new network {:?}", new_network);
+
                     let new_subnet = new_network
                         .clone()
                         .ipam
@@ -706,6 +738,7 @@ pub async fn create_network(
                             tracing::error!("No subnet found for network {}", network_name);
                             anyhow::anyhow!("No subnet found for network {}", network_name)
                         })?;
+                    tracing::warn!(?new_subnet, "New subnet");
 
                     // make sure the container we want to connect is the first one
 
