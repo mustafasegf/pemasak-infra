@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select subnet from domains where name = $1 and subnet = '0.0.0.0/0' ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subnet",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "372e9b7c4534a623398fda5447a7ab09a156499a1549cb6265f57851cf2289e2"
+}
