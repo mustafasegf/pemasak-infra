@@ -32,6 +32,7 @@ pub struct AppState {
     pub git_auth: bool,
     pub sso: bool,
     pub domain: String,
+    pub host_ip: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
     pub build_channel: Sender<BuildQueueItem>,
@@ -189,6 +190,7 @@ pub async fn fallback(
         client,
         domain,
         idle_channel,
+        host_ip,
         ..
     }): State<AppState>,
     Host(hostname): Host,
@@ -225,10 +227,11 @@ pub async fn fallback(
 
     let project_record = match sqlx::query!(
         r#"
-        SELECT projects.id, projects.state as "state: ProjectState"
+        SELECT projects.id, projects.state as "state: ProjectState", domains.host_ip
         FROM projects
         JOIN project_owners ON projects.owner_id = project_owners.id
         JOIN users_owners ON project_owners.id = users_owners.owner_id
+        JOIN domains on projects.id = domains.project_id
         AND projects.name = $1
         AND project_owners.name = $2
       "#,
@@ -255,6 +258,25 @@ pub async fn fallback(
                 .unwrap();
         }
     };
+
+    if project_record.host_ip != host_ip && project_record.host_ip != "0.0.0.0" {
+        let uri = format!("http://{}{}", project_record.host_ip, uri);
+        *req.uri_mut() = Uri::try_from(uri).unwrap();
+        match client.request(req).await {
+            Ok(res) => {
+                tracing::debug!("response");
+                return res;
+            }
+            Err(err) => {
+                tracing::error!(?err, "Can't access container: Failed request to container");
+
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap();
+            }
+        }
+    }
 
     let db_name = format!("{subdomain}-db");
     let docker = Docker::connect_with_local_defaults().unwrap();
@@ -576,10 +598,10 @@ pub async fn fallback_middleware(
 
                     if let Err(err) = sqlx::query!(
                         r#"
-                                UPDATE domains
-                                SET docker_ip = $1
-                                WHERE name = $2
-                            "#,
+                            UPDATE domains
+                            SET docker_ip = $1
+                            WHERE name = $2
+                        "#,
                         ip,
                         subdomain
                     )
