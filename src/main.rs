@@ -116,8 +116,9 @@ async fn main() {
     // TODO: maybe move this to statup
     tokio::spawn({
         let tx = tx.clone();
+        let host_ip = config.application.hostip.clone();
         async move {
-            build_queue_handler(build_queue, tx).await;
+            build_queue_handler(build_queue, tx, host_ip).await;
         }
     });
 
@@ -215,6 +216,7 @@ async fn main() {
         sso: config.auth.sso,
         client: Client::new(),
         domain: config.domain(),
+        host_ip : config.application.hostip.clone(),
         build_channel,
         pool,
         secure: config.application.secure,

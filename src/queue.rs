@@ -4,7 +4,7 @@ use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
-    },
+    }, borrow::Cow,
 };
 
 use anyhow::Result;
@@ -90,6 +90,7 @@ pub async fn trigger_build(
         container_name,
     }: BuildItem,
     pool: PgPool,
+    host_ip: &str,
 ) -> Result<String, BuildError> {
     // TODO: need to emmit error somewhere
     let project = match sqlx::query!(
@@ -216,7 +217,7 @@ pub async fn trigger_build(
 
     // TODO: check why why need this
     let subdomain = match sqlx::query!(
-        r#"SELECT domains.name, domains.subnet
+        r#"SELECT domains.name, domains.subnet, domains.host_ip
            FROM domains
            WHERE domains.project_id = $1
         "#,
@@ -239,13 +240,28 @@ pub async fn trigger_build(
                     inner_error: Some(err.into()),
                 })?;
             }
+
+            if subdomain.host_ip == "0.0.0.0" {
+                sqlx::query!(
+                    "UPDATE domains SET host_ip = $1 WHERE project_id = $2",
+                    host_ip,
+                    project.id
+                )
+                .execute(&pool)
+                .await
+                .map_err(|err| BuildError {
+                    message: "Failed to update domain host_ip: Failed to query database"
+                        .to_string(),
+                    inner_error: Some(err.into()),
+                })?;
+            }
             Ok(subdomain.name)
         }
         Ok(None) => {
             let id = Uuid::from(Ulid::new());
             let subdomain = sqlx::query!(
-                r#"INSERT INTO domains (id, project_id, name, port, docker_ip, db_url, subnet)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                r#"INSERT INTO domains (id, project_id, name, port, docker_ip, db_url, subnet, host_ip)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 "#,
                 id,
                 project.id,
@@ -253,7 +269,8 @@ pub async fn trigger_build(
                 port,
                 ip,
                 db_url,
-                subnet
+                subnet,
+                host_ip,
             )
             .execute(&pool)
             .await;
@@ -281,8 +298,11 @@ pub async fn process_task_poll(
     build_count: Arc<AtomicUsize>,
     pool: PgPool,
     idle_channel: Sender<String>,
+    host_ip: String,
 ) {
+    let host_ip: Cow<'_, str> = Cow::Owned(host_ip);
     loop {
+        let host_ip = host_ip.clone();
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 
@@ -307,7 +327,7 @@ pub async fn process_task_poll(
 
                 build_count.fetch_sub(1, Ordering::SeqCst);
                 tokio::spawn(async move {
-                    match trigger_build(build_item, pool).await {
+                    match trigger_build(build_item, pool, &host_ip).await {
                         Ok(subdomain) => tracing::info!("Project deployed at {subdomain}"),
                         Err(BuildError {
                             message,
@@ -404,7 +424,11 @@ pub async fn process_task_enqueue(
     }
 }
 
-pub async fn build_queue_handler(build_queue: BuildQueue, idle_channel: Sender<String>) {
+pub async fn build_queue_handler(
+    build_queue: BuildQueue,
+    idle_channel: Sender<String>,
+    hostip: String,
+) {
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
         let waiting_set = Arc::clone(&build_queue.waiting_set);
@@ -417,6 +441,7 @@ pub async fn build_queue_handler(build_queue: BuildQueue, idle_channel: Sender<S
                 build_queue.build_count,
                 pool,
                 idle_channel,
+                hostip,
             )
             .await;
         });
