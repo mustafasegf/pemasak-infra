@@ -32,6 +32,7 @@ pub struct ApplicationSettings {
     pub port: u16,
     pub host: String,
     pub domain: String,
+    pub hostip: String,
     pub bodylimit: String,
     pub ipv6: bool,
     pub secure: bool,
@@ -74,6 +75,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("application.port", 8080)?
         .set_default("application.host", "0.0.0.0")?
         .set_default("application.domain", "localhost:8080")?
+        .set_default("application.hostip", "127.0.0.1")?
         .set_default("application.bodylimit", "25mib")?
         .set_default("application.ipv6", false)?
         .set_default("application.secure", false)?
