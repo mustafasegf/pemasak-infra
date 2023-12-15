@@ -62,6 +62,7 @@ CREATE TABLE domains (
   port        INTEGER       NOT NULL,
   docker_ip   TEXT          NOT NULL,
   subnet      TEXT          NOT NULL default '0.0.0.0/0', -- TODO: make this unique
+  host_ip     TEXT          NOT NULL default '0.0.0.0', -- TODO: remove default after fixing all the code
   -- TODO: rethink if we need this on a seperate table
   db_url      TEXT,
   created_at  TIMESTAMPTZ   NOT NULL default now(),

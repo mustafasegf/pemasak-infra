@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT domains.name, domains.subnet\n           FROM domains\n           WHERE domains.project_id = $1\n        ",
+  "query": "SELECT domains.name, domains.subnet, domains.host_ip\n           FROM domains\n           WHERE domains.project_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "subnet",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "host_ip",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "4d76fd4c43c2d1cc261a2a7c2a6dcbf4d210acdcc319073236050314b2c530af"
+  "hash": "6e6c3519b994fc0944dfceb1706cb0939606ffc2d8c8dc9870e267cc78fb06ab"
 }

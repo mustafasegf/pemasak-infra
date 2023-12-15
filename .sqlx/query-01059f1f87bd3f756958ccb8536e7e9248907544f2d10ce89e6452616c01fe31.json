@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT projects.id, projects.state as \"state: ProjectState\", domains.host_ip\n        FROM projects\n        JOIN project_owners ON projects.owner_id = project_owners.id\n        JOIN users_owners ON project_owners.id = users_owners.owner_id\n        JOIN domains on projects.id = domains.project_id\n        AND projects.name = $1\n        AND project_owners.name = $2\n      ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "state: ProjectState",
+        "type_info": {
+          "Custom": {
+            "name": "project_state",
+            "kind": {
+              "Enum": [
+                "empty",
+                "running",
+                "stopped",
+                "idle"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "host_ip",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "01059f1f87bd3f756958ccb8536e7e9248907544f2d10ce89e6452616c01fe31"
+}

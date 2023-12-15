@@ -1,4 +1,4 @@
-h1:Wh7CWDhji+nR1cyEEvL8Sm+WMTRF6X765nTGsuUArGo=
+h1:Yepr3SxV1+lYkIt4SeJKNANILr99BlypDIZwRT9yK1I=
 20231007150016_init.sql h1:rqZJtLRKZS11n4sUwPLU5ONxi0yrVSjwI+u2vMD0GZA=
 20231010140913_add_network_info_on_domains.sql h1:+0iRnWybkPR7Ql7MsqOEzYWhIMaRy5aYEeou/rxv6zU=
 20231010141823_change_id_in_domains.sql h1:Tpm0+DQ0C9399qQCnj2Z/WI8i6t/hgoGQG+BhpWTy6Q=
@@ -9,3 +9,4 @@ h1:Wh7CWDhji+nR1cyEEvL8Sm+WMTRF6X765nTGsuUArGo=
 20231208140848_add_envs_to_project.sql h1:T+i/F3r1D0y9zaVcM/IfSy8RveTchclH7v8dCXsy/+E=
 20231210061157_add_state_to_project.sql h1:L+JwYM0LiH6nHMJUTwvCQ/087FPXebMwB1n0x8incC4=
 20231212095111_add_subnet_to_domains.sql h1:av1iXrznSDUPcGuMUHh8l3LR71DIfz6G54T/nIpOnIs=
+20231215111711_add_hosted_ip_on_domain.sql h1:lWPGoyrWZGPv90C+PINqKFx1E4OiPm7eISik9Ks+h3U=
