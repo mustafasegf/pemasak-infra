@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            UPDATE domains\n                            SET docker_ip = $1\n                            WHERE name = $2\n                        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "326faaf5771b1a3d971ef87580d02f60f397cd23f6429a52c5c546e696c29f0b"
+}
