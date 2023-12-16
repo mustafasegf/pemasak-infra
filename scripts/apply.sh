@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-json=$(cat configuration.yml| yj)
+json=$(cat configuration.yml | yj)
 # Extract values using jq
 db_user=$(echo "$json" | jq -r '.database.user')
 db_password=$(echo "$json" | jq -r '.database.password')
@@ -12,5 +12,5 @@ database_url="postgresql://$db_user:$db_password@localhost:$db_port/$db_name?sea
 echo "applying migrations to $database_url"
 
 atlas migrate apply \
-  --dir "file://migrations" \
-  --url "$database_url"
+	--dir "file://migrations" \
+	--url "$database_url"
