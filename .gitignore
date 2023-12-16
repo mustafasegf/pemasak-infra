@@ -7,3 +7,4 @@ configuration.yaml
 .env
 /test
 .vscode
+/config/postgres/postgresql.conf
