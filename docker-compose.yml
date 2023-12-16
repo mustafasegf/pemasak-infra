@@ -2,9 +2,11 @@ version: "3.8"
 services:
   db:
     container_name: db-pemasak
-    image: postgres:16.0-alpine3.18
+    # image: postgres:16.0-alpine3.18
+    image: quay.io/tembo/pgmq-pg:v1.1.0
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./config/postgres/postgresql.conf:/usr/share/postgresql/15/postgresql.conf.sample
     restart: always
     environment:
       POSTGRES_USER: ${DB_USER}
@@ -17,7 +19,6 @@ services:
       timeout: 60s
       retries: 5
       start_period: 80s
-
     # network_mode: "host"
     networks:
       - pemasak
