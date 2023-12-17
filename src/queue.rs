@@ -10,7 +10,9 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use ulid::Ulid;
 use uuid::Uuid;
 
+use pgmq::Message;
 use pgmq::PGMQueueExt;
+use sqlx::types::Json;
 
 use crate::docker::{build_docker, DockerContainer};
 
@@ -20,6 +22,7 @@ pub struct BuildError {
     message: String,
     inner_error: Option<Box<dyn std::error::Error>>,
 }
+
 #[derive(Debug)]
 pub struct BuildQueueItem {
     pub container_name: String,
@@ -41,21 +44,6 @@ pub struct BuildQueue {
     pub build_count: Arc<AtomicUsize>,
     pub receive_channel: Receiver<BuildQueueItem>,
     pub pg_pool: PgPool,
-}
-
-impl BuildQueue {
-    pub fn new(build_count: usize, pg_pool: PgPool) -> (Self, Sender<BuildQueueItem>) {
-        let (tx, rx) = mpsc::channel(32);
-
-        (
-            Self {
-                build_count: Arc::new(AtomicUsize::new(build_count)),
-                receive_channel: rx,
-                pg_pool,
-            },
-            tx,
-        )
-    }
 }
 
 pub async fn trigger_build(
@@ -270,13 +258,14 @@ pub async fn trigger_build(
 }
 
 pub async fn process_task_poll(
-    build_count: Arc<AtomicUsize>,
+    build_count: AtomicUsize,
     pool: PgPool,
     idle_channel: Sender<String>,
     host_ip: String,
 ) {
     let host_ip: Cow<'_, str> = Cow::Owned(host_ip);
     let queue = PGMQueueExt::new_with_pool(pool.clone()).await.unwrap();
+    let build_count = Arc::new(build_count);
 
     loop {
         let host_ip = host_ip.clone();
@@ -337,114 +326,103 @@ pub async fn process_task_poll(
     }
 }
 
-pub async fn process_task_enqueue(pool: PgPool, mut receive_channel: Receiver<BuildQueueItem>) {
+pub async fn queue_build(pool: PgPool, message: BuildQueueItem) -> Result<Uuid> {
     let queue = PGMQueueExt::new_with_pool(pool.clone()).await.unwrap();
-    while let Some(message) = receive_channel.recv().await {
-        let BuildQueueItem {
-            container_name,
-            container_src,
-            owner,
-            repo,
-        } = message;
 
-        let project = match sqlx::query!(
-            r#"SELECT projects.id
+    let BuildQueueItem {
+        container_name,
+        container_src,
+        owner,
+        repo,
+    } = message;
+
+    let project = match sqlx::query!(
+        r#"SELECT projects.id
                FROM projects
                JOIN project_owners ON projects.owner_id = project_owners.id
                WHERE project_owners.name = $1
                AND projects.name = $2
             "#,
-            owner,
-            repo
-        )
-        .fetch_optional(&pool)
-        .await
-        {
-            Ok(project) => match project {
-                Some(project) => project,
-                None => {
-                    tracing::error!("Project not found with owner {} and repo {}", owner, repo);
-                    continue;
-                }
-            },
-            Err(err) => {
-                tracing::error!(?err, "Can't query project: Failed to query database");
-                continue;
+        owner,
+        repo
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(project) => match project {
+            Some(project) => project,
+            None => {
+                tracing::error!("Project not found with owner {} and repo {}", owner, repo);
+                return Err(anyhow::anyhow!(
+                    "Project not found with owner {} and repo {}",
+                    owner,
+                    repo
+                ));
             }
-        };
+        },
+        Err(err) => {
+            tracing::error!(?err, "Can't query project: Failed to query database");
+            return Err(anyhow::anyhow!(
+                "Can't query project: Failed to query database"
+            ));
+        }
+    };
 
-        // TODO: change into transactional check
+    // TODO: change into transactional check
+    match sqlx::query!(
+        r#"
+            SELECT message as "message: Json<Message<BuildItem>>"
+            FROM pgmq.q_build_queue
+            WHERE MESSAGE ->> 'container_name' = $1
+        "#,
+        container_name
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(None) => {}
+        Ok(Some(record)) => {
+            tracing::info!(container_name, "Container already in queue");
+            let raw_msg = record.message.expect("no message");
+            let build_id = raw_msg.message.build_id;
 
-        match sqlx::query!(
-            r#"
-                  SELECT *
-                  FROM pgmq.q_build_queue
-                  WHERE MESSAGE ->> 'container_name' = $1
-            "#,
-            container_name
-        )
-        .fetch_optional(&pool)
-        .await
-        {
-            Ok(None) => {}
-            Ok(Some(_)) => {
-                tracing::info!(container_name, "Container already in queue");
-                continue;
-            }
-            Err(err) => {
-                tracing::error!(
-                    ?err,
-                    container_name,
-                    "Can't query queue: Failed to query database"
-                );
-                continue;
-            }
-        };
+            return Ok(build_id);
+        }
+        Err(err) => {
+            tracing::error!(
+                ?err,
+                container_name,
+                "Can't query queue: Failed to query database"
+            );
+            return Err(anyhow::anyhow!(
+                "Can't query queue: Failed to query database"
+            ));
+        }
+    };
 
-        let build_id = Uuid::from(Ulid::new());
-        if let Err(err) = sqlx::query!(
-            r#"INSERT INTO builds (id, project_id)
+    let build_id = Uuid::from(Ulid::new());
+    sqlx::query!(
+        r#"INSERT INTO builds (id, project_id)
                VALUES ($1, $2)
             "#,
-            build_id,
-            project.id,
-        )
-        .execute(&pool)
-        .await
-        {
-            tracing::error!(?err, "Can't create build: Failed to query database");
-            continue;
-        };
+        build_id,
+        project.id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|err| {
+        tracing::error!(?err, "Can't insert build: Failed to query database");
+        anyhow::anyhow!("Can't insert build: Failed to query database")
+    })?;
 
-        let build_item = BuildItem {
-            build_id,
-            container_name,
-            container_src,
-            owner,
-            repo,
-        };
+    let build_item = BuildItem {
+        build_id: build_id.clone(),
+        container_name,
+        container_src,
+        owner,
+        repo,
+    };
 
-        queue.send("build_queue", &build_item).await.unwrap();
-    }
-}
-
-pub async fn build_queue_handler(
-    build_queue: BuildQueue,
-    idle_channel: Sender<String>,
-    host_ip: String,
-) {
-    {
-        let pool = build_queue.pg_pool.clone();
-
-        tokio::spawn(async move {
-            process_task_poll(build_queue.build_count, pool, idle_channel, host_ip).await;
-        });
-    }
-    {
-        let pool = build_queue.pg_pool.clone();
-
-        tokio::spawn(async move {
-            process_task_enqueue(pool, build_queue.receive_channel).await;
-        });
-    }
+    queue.send("build_queue", &build_item).await.unwrap();
+    Ok(build_id)
 }
