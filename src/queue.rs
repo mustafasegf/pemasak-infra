@@ -1,23 +1,18 @@
-use std::{
-    collections::{HashSet, VecDeque},
-    hash::Hash,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    }, borrow::Cow,
-};
+use std::borrow::Cow;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::Mutex;
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::docker::{build_docker, DockerContainer};
+use pgmq::PGMQueueExt;
 
-type ConcurrentMutex<T> = Arc<Mutex<T>>;
+use crate::docker::{build_docker, DockerContainer};
 
 #[derive(Error, Debug)]
 #[error("{message:?}")]
@@ -33,7 +28,7 @@ pub struct BuildQueueItem {
     pub repo: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct BuildItem {
     pub build_id: Uuid,
     pub container_name: String,
@@ -42,24 +37,8 @@ pub struct BuildItem {
     pub repo: String,
 }
 
-impl Hash for BuildItem {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.container_name.hash(state)
-    }
-}
-
-impl PartialEq for BuildItem {
-    fn eq(&self, other: &Self) -> bool {
-        self.container_name == other.container_name
-    }
-}
-
-impl Eq for BuildItem {}
-
 pub struct BuildQueue {
     pub build_count: Arc<AtomicUsize>,
-    pub waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
-    pub waiting_set: ConcurrentMutex<HashSet<String>>,
     pub receive_channel: Receiver<BuildQueueItem>,
     pub pg_pool: PgPool,
 }
@@ -71,8 +50,6 @@ impl BuildQueue {
         (
             Self {
                 build_count: Arc::new(AtomicUsize::new(build_count)),
-                waiting_queue: Arc::new(Mutex::new(VecDeque::new())),
-                waiting_set: Arc::new(Mutex::new(HashSet::new())),
                 receive_channel: rx,
                 pg_pool,
             },
@@ -293,29 +270,41 @@ pub async fn trigger_build(
 }
 
 pub async fn process_task_poll(
-    waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
-    waiting_set: ConcurrentMutex<HashSet<String>>,
     build_count: Arc<AtomicUsize>,
     pool: PgPool,
     idle_channel: Sender<String>,
     host_ip: String,
 ) {
     let host_ip: Cow<'_, str> = Cow::Owned(host_ip);
+    let queue = PGMQueueExt::new_with_pool(pool.clone()).await.unwrap();
+
     loop {
         let host_ip = host_ip.clone();
-        let mut waiting_queue = waiting_queue.lock().await;
-        let mut waiting_set = waiting_set.lock().await;
-
         let build_count = Arc::clone(&build_count);
 
-        if build_count.load(Ordering::SeqCst) > 0 && waiting_queue.len() > 0 {
-            let build_item = match waiting_queue.pop_front() {
-                Some(build_item) => build_item,
-                None => continue,
-            };
-            waiting_set.remove(&build_item.container_name);
+        // TODO: handle error
+        let waiting_queue_count = sqlx::query!(
+            r#"SELECT COUNT(*) as count
+               FROM pgmq.q_build_queue
+            "#
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .count
+        .unwrap();
 
-            let container_name = build_item.container_name.clone();
+        if build_count.load(Ordering::SeqCst) > 0 && waiting_queue_count > 0 {
+            let build_item = match queue.pop::<BuildItem>("build_queue").await {
+                Ok(Some(build_item)) => build_item,
+                Ok(None) => continue,
+                Err(err) => {
+                    tracing::error!(?err, "Failed to pop from queue");
+                    continue;
+                }
+            };
+
+            let container_name = build_item.message.container_name.clone();
             let idle_channel = idle_channel.clone();
             if let Err(err) = idle_channel.send(container_name.clone()).await {
                 tracing::error!(?err, "Failed to send idle message");
@@ -326,8 +315,9 @@ pub async fn process_task_poll(
                 let pool = pool.clone();
 
                 build_count.fetch_sub(1, Ordering::SeqCst);
+
                 tokio::spawn(async move {
-                    match trigger_build(build_item, pool, &host_ip).await {
+                    match trigger_build(build_item.message, pool, &host_ip).await {
                         Ok(subdomain) => tracing::info!("Project deployed at {subdomain}"),
                         Err(BuildError {
                             message,
@@ -347,12 +337,8 @@ pub async fn process_task_poll(
     }
 }
 
-pub async fn process_task_enqueue(
-    waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
-    waiting_set: ConcurrentMutex<HashSet<String>>,
-    pool: PgPool,
-    mut receive_channel: Receiver<BuildQueueItem>,
-) {
+pub async fn process_task_enqueue(pool: PgPool, mut receive_channel: Receiver<BuildQueueItem>) {
+    let queue = PGMQueueExt::new_with_pool(pool.clone()).await.unwrap();
     while let Some(message) = receive_channel.recv().await {
         let BuildQueueItem {
             container_name,
@@ -360,8 +346,6 @@ pub async fn process_task_enqueue(
             owner,
             repo,
         } = message;
-        let mut waiting_queue = waiting_queue.lock().await;
-        let mut waiting_set = waiting_set.lock().await;
 
         let project = match sqlx::query!(
             r#"SELECT projects.id
@@ -389,26 +373,47 @@ pub async fn process_task_enqueue(
             }
         };
 
-        if waiting_set.contains(&container_name) {
-            continue;
-        }
+        // TODO: change into transactional check
+
+        match sqlx::query!(
+            r#"
+                  SELECT *
+                  FROM pgmq.q_build_queue
+                  WHERE MESSAGE ->> 'container_name' = $1
+            "#,
+            container_name
+        )
+        .fetch_optional(&pool)
+        .await
+        {
+            Ok(None) => {}
+            Ok(Some(_)) => {
+                tracing::info!(container_name, "Container already in queue");
+                continue;
+            }
+            Err(err) => {
+                tracing::error!(
+                    ?err,
+                    container_name,
+                    "Can't query queue: Failed to query database"
+                );
+                continue;
+            }
+        };
 
         let build_id = Uuid::from(Ulid::new());
-        match sqlx::query!(
+        if let Err(err) = sqlx::query!(
             r#"INSERT INTO builds (id, project_id)
                VALUES ($1, $2)
             "#,
             build_id,
             project.id,
         )
-        .fetch_optional(&pool)
+        .execute(&pool)
         .await
         {
-            Ok(build_details) => build_details,
-            Err(err) => {
-                tracing::error!(?err, "Can't create build: Failed to query database");
-                continue;
-            }
+            tracing::error!(?err, "Can't create build: Failed to query database");
+            continue;
         };
 
         let build_item = BuildItem {
@@ -419,46 +424,27 @@ pub async fn process_task_enqueue(
             repo,
         };
 
-        waiting_set.insert(build_item.container_name.clone());
-        waiting_queue.push_back(build_item);
+        queue.send("build_queue", &build_item).await.unwrap();
     }
 }
 
 pub async fn build_queue_handler(
     build_queue: BuildQueue,
     idle_channel: Sender<String>,
-    hostip: String,
+    host_ip: String,
 ) {
     {
-        let waiting_queue = Arc::clone(&build_queue.waiting_queue);
-        let waiting_set = Arc::clone(&build_queue.waiting_set);
         let pool = build_queue.pg_pool.clone();
 
         tokio::spawn(async move {
-            process_task_poll(
-                waiting_queue,
-                waiting_set,
-                build_queue.build_count,
-                pool,
-                idle_channel,
-                hostip,
-            )
-            .await;
+            process_task_poll(build_queue.build_count, pool, idle_channel, host_ip).await;
         });
     }
     {
-        let waiting_queue = Arc::clone(&build_queue.waiting_queue);
-        let waiting_set = Arc::clone(&build_queue.waiting_set);
         let pool = build_queue.pg_pool.clone();
 
         tokio::spawn(async move {
-            process_task_enqueue(
-                waiting_queue,
-                waiting_set,
-                pool,
-                build_queue.receive_channel,
-            )
-            .await;
+            process_task_enqueue(pool, build_queue.receive_channel).await;
         });
     }
 }
