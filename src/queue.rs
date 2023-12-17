@@ -6,15 +6,12 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use thiserror::Error;
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use ulid::Ulid;
 use uuid::Uuid;
 
-use pgmq::Message;
-use pgmq::PGMQueueExt;
-use sqlx::types::Json;
-
 use crate::docker::{build_docker, DockerContainer};
+use pgmq::PGMQueueExt;
 
 #[derive(Error, Debug)]
 #[error("{message:?}")]
@@ -270,6 +267,7 @@ pub async fn process_task_poll(
     loop {
         let host_ip = host_ip.clone();
         let build_count = Arc::clone(&build_count);
+        let queue = queue.clone();
 
         // TODO: handle error
         let waiting_queue_count = sqlx::query!(
@@ -284,7 +282,9 @@ pub async fn process_task_poll(
         .unwrap();
 
         if build_count.load(Ordering::SeqCst) > 0 && waiting_queue_count > 0 {
-            let build_item = match queue.pop::<BuildItem>("build_queue").await {
+            // let build_item = match queue.pop::<BuildItem>("build_queue").await {
+            // TODO: make timeout configurable
+            let build_item = match queue.read::<BuildItem>("build_queue", 60 * 15).await {
                 Ok(Some(build_item)) => build_item,
                 Ok(None) => continue,
                 Err(err) => {
@@ -314,6 +314,11 @@ pub async fn process_task_poll(
                         }) => tracing::error!(err = ?inner_error, message),
                     };
 
+                    queue
+                        .delete("build_queue", build_item.msg_id)
+                        .await
+                        .unwrap();
+
                     if let Err(err) = idle_channel.send(container_name.clone()).await {
                         tracing::error!(?err, "Failed to send idle message");
                     };
@@ -327,8 +332,6 @@ pub async fn process_task_poll(
 }
 
 pub async fn queue_build(pool: PgPool, message: BuildQueueItem) -> Result<Uuid> {
-    let queue = PGMQueueExt::new_with_pool(pool.clone()).await.unwrap();
-
     let BuildQueueItem {
         container_name,
         container_src,
@@ -368,61 +371,98 @@ pub async fn queue_build(pool: PgPool, message: BuildQueueItem) -> Result<Uuid> 
         }
     };
 
-    // TODO: change into transactional check
-    match sqlx::query!(
-        r#"
-            SELECT message as "message: Json<Message<BuildItem>>"
-            FROM pgmq.q_build_queue
-            WHERE MESSAGE ->> 'container_name' = $1
-        "#,
-        container_name
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(None) => {}
-        Ok(Some(record)) => {
-            tracing::info!(container_name, "Container already in queue");
-            let raw_msg = record.message.expect("no message");
-            let build_id = raw_msg.message.build_id;
-
-            return Ok(build_id);
-        }
-        Err(err) => {
-            tracing::error!(
-                ?err,
-                container_name,
-                "Can't query queue: Failed to query database"
-            );
-            return Err(anyhow::anyhow!(
-                "Can't query queue: Failed to query database"
-            ));
-        }
-    };
-
     let build_id = Uuid::from(Ulid::new());
-    sqlx::query!(
-        r#"INSERT INTO builds (id, project_id)
-               VALUES ($1, $2)
-            "#,
-        build_id,
-        project.id,
-    )
-    .execute(&pool)
-    .await
-    .map_err(|err| {
-        tracing::error!(?err, "Can't insert build: Failed to query database");
-        anyhow::anyhow!("Can't insert build: Failed to query database")
-    })?;
 
     let build_item = BuildItem {
         build_id: build_id.clone(),
-        container_name,
+        container_name: container_name.clone(),
         container_src,
         owner,
         repo,
     };
 
-    queue.send("build_queue", &build_item).await.unwrap();
+    let payload = serde_json::json!(&build_item);
+
+    match sqlx::query!(
+        r#"
+            WITH exist AS (
+            SELECT *
+            FROM pgmq.q_build_queue
+            WHERE MESSAGE ->> 'container_name' = $1
+            ),
+            inserted AS (
+                INSERT INTO builds (id, project_id)
+                SELECT $2, $3
+                WHERE NOT EXISTS (SELECT 1 FROM exist)
+                RETURNING id
+            )
+            SELECT pgmq.send('build_queue', $4::jsonb) 
+            FROM inserted;
+        "#,
+        container_name,
+        build_id,
+        project.id,
+        payload
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Err(err) => {
+            tracing::error!(?err, "Can't insert build: Failed to query database");
+            return Err(anyhow::anyhow!(
+                "Can't insert build: Failed to query database"
+            ));
+        }
+        _ => {}
+    }
+
+    // TODO: change into transactional check
+    // match sqlx::query!(
+    //     r#"
+    //         SELECT message as "message: Json<Message<BuildItem>>"
+    //         FROM pgmq.q_build_queue
+    //         WHERE MESSAGE ->> 'container_name' = $1
+    //     "#,
+    //     container_name
+    // )
+    // .fetch_optional(&pool)
+    // .await
+    // {
+    //     Ok(None) => {}
+    //     Ok(Some(record)) => {
+    //         tracing::info!(container_name, "Container already in queue");
+    //         let raw_msg = record.message.expect("no message");
+    //         let build_id = raw_msg.message.build_id;
+    //
+    //         return Ok(build_id);
+    //     }
+    //     Err(err) => {
+    //         tracing::error!(
+    //             ?err,
+    //             container_name,
+    //             "Can't query queue: Failed to query database"
+    //         );
+    //         return Err(anyhow::anyhow!(
+    //             "Can't query queue: Failed to query database"
+    //         ));
+    //     }
+    // };
+
+    // sqlx::query!(
+    //     r#"
+    //         INSERT INTO builds (id, project_id)
+    //         VALUES ($1, $2)
+    //     "#,
+    //     build_id,
+    //     project.id,
+    // )
+    // .execute(&pool)
+    // .await
+    // .map_err(|err| {
+    //     tracing::error!(?err, "Can't insert build: Failed to query database");
+    //     anyhow::anyhow!("Can't insert build: Failed to query database")
+    // })?;
+
+    // queue.send("build_queue", &build_item).await.unwrap();
     Ok(build_id)
 }
