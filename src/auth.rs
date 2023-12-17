@@ -630,7 +630,6 @@ pub async fn register_user(
 #[tracing::instrument]
 pub async fn register_user_ui(
     auth: Auth,
-    State(AppState { build_channel, .. }): State<AppState>,
 ) -> Html<String> {
     let is_logged_in: bool = auth.current_user.is_some();
 
