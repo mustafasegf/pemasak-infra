@@ -23,6 +23,7 @@ use std::net::{SocketAddr, TcpListener};
 use crate::auth::User;
 use crate::configuration::Settings;
 use crate::docker::start_container;
+use crate::queue::BuildQueueItem;
 use crate::{auth, dashboard, git, owner, projects, telemetry};
 
 #[derive(Clone)]
@@ -34,6 +35,7 @@ pub struct AppState {
     pub host_ip: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
+    pub build_channel: Sender<BuildQueueItem>,
     pub secure: bool,
     pub idle_channel: Sender<String>,
 }

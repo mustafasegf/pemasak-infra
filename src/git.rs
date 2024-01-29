@@ -29,11 +29,7 @@ use serde::Deserialize;
 use tokio::{io::AsyncWriteExt, process::Command};
 use tower_http::limit::RequestBodyLimitLayer;
 
-use crate::{
-    configuration::Settings,
-    queue::{self, BuildQueueItem},
-    startup::AppState,
-};
+use crate::{configuration::Settings, queue::BuildQueueItem, startup::AppState};
 
 use data_encoding::BASE64;
 
@@ -386,7 +382,7 @@ pub async fn recieve_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
     State(AppState {
         base,
-        pool,
+        build_channel,
         ..
     }): State<AppState>,
     headers: HeaderMap,
@@ -516,21 +512,16 @@ pub async fn recieve_pack_rpc(
         };
     };
 
-    let item = BuildQueueItem {
-        container_name,
-        container_src,
-        owner,
-        repo,
-    };
-
-    match queue::queue_build(pool, item).await {
-        Ok(build_id) => {
-            tracing::info!(?build_id, "build queued");
-        }
-        Err(err) => {
-            tracing::error!(?err, "failed to queue build");
-        }
-    }
+    tokio::spawn(async move {
+        build_channel
+            .send(BuildQueueItem {
+                container_name,
+                container_src,
+                owner,
+                repo,
+            })
+            .await
+    });
 
     res
 }

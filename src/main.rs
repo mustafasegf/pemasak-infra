@@ -2,7 +2,7 @@ use bollard::Docker;
 use hyper::{client::HttpConnector, Body};
 use pemasak_infra::{
     configuration,
-    queue::process_task_poll,
+    queue::{build_queue_handler, BuildQueue},
     startup, telemetry,
 };
 use sqlx::postgres::PgPoolOptions;
@@ -117,17 +117,16 @@ async fn main() {
         }
     }
 
+    let (build_queue, build_channel) = BuildQueue::new(config.build.max, pool.clone());
+
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
 
     // TODO: maybe move this to statup
     tokio::spawn({
         let tx = tx.clone();
         let host_ip = config.application.hostip.clone();
-        let pool = pool.clone();
-        let build_count = config.build.max;
-
         async move {
-            process_task_poll(build_count.into(), pool, tx, host_ip).await
+            build_queue_handler(build_queue, tx, host_ip).await;
         }
     });
 
@@ -226,6 +225,7 @@ async fn main() {
         client: Client::new(),
         domain: config.domain(),
         host_ip: config.application.hostip.clone(),
+        build_channel,
         pool,
         secure: config.application.secure,
         idle_channel: tx,
