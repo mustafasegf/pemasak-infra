@@ -65,14 +65,6 @@ async fn main() {
         }
     }
 
-    if let Err(err) = sqlx::query!(r#"SELECT pgmq.create('build_queue')"#)
-        .execute(&pool)
-        .await
-    {
-        tracing::error!(?err, "Failed to create build queue");
-        process::exit(1);
-    }
-
     // check docker permissions
     if let Err(err) = tokio::fs::metadata("/var/run/docker.sock").await {
         tracing::error!(?err, "Failed to access docker socket");
@@ -224,7 +216,7 @@ async fn main() {
         sso: config.auth.sso,
         client: Client::new(),
         domain: config.domain(),
-        host_ip: config.application.hostip.clone(),
+        host_ip : config.application.hostip.clone(),
         build_channel,
         pool,
         secure: config.application.secure,
