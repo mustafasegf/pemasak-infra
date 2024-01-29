@@ -9,8 +9,8 @@ import dotenv from "k6/x/dotenv";
 // let domain = config.application.domain;
 
 const csvData = open('./data.csv').trim();
-const csvArr = csvData.split(/\r?\n/).map((line) => line.split(',')).slice(0, 1);
-const csv = csvArr.map(line => ({ name: line[1].trim().replace(" ", "").toLowerCase(), github: "https://" + line[2].trim() }))
+const csvArr = csvData.split(/\r?\n/).map((line) => line.split(',')).slice(0, 5);
+const csv = csvArr.map(line => ({ name: line[1].trim().replaceAll(" ", "").toLowerCase(), github: "https://" + line[2].trim() }))
 
 const { username, password, domain } = dotenv.parse(open("./.env"));
 
@@ -81,12 +81,14 @@ export default function() {
     });
     console.log({ execRes });
 
-    // delete project
-    http.post(`${domain}/${username}/${name}/delete`, {}, {
-      headers: {
-        "Cookie": cookieString
-      }
-    })
+    // need a way to check if deploy is successful
+    
+    // // delete project
+    // http.post(`${domain}/${username}/${name}/delete`, {}, {
+    //   headers: {
+    //     "Cookie": cookieString
+    //   }
+    // })
 
   }
 }
