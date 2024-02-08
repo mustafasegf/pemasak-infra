@@ -237,9 +237,23 @@ pub struct Jurusan {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn register_user(
     auth: Auth,
-    State(AppState { pool, sso, .. }): State<AppState>,
+    State(AppState { pool, sso, register, .. }): State<AppState>,
     Form(req): Form<Unvalidated<UserRequest>>,
 ) -> Response<Body> {
+    if !register {
+        let html = render_to_string(move || {
+            view! {
+                <h1> Beta-Tester Application is Currently Closed. Please try another time. </h1>
+            }
+        })
+        .into_owned();
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "text/html")
+            .body(Body::from(html))
+            .unwrap();
+        
+    }
     let UserRequest {
         username,
         name,

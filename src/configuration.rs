@@ -59,6 +59,7 @@ pub struct GitSettings {
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthSettings {
     pub sso: bool,
+    pub register: bool,
     /// in hours
     pub lifespan: i64,
     pub cookiename: String,
@@ -89,6 +90,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("git.base", "./git-repo")?
         .set_default("git.auth", true)?
         .set_default("auth.sso", true)?
+        .set_default("auth.register", true)?
         .set_default("auth.lifespan", 24 * 7)?
         .set_default("auth.cookiename", "session")?
         .set_default("auth.maxage", 365)?

@@ -31,6 +31,7 @@ pub struct AppState {
     pub base: String,
     pub git_auth: bool,
     pub sso: bool,
+    pub register: bool,
     pub domain: String,
     pub host_ip: String,
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
