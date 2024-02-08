@@ -24,6 +24,7 @@ log:
 
 auth:
   sso: true
+  register: true
   # in hour
   lifespan: 168
   cookiename: session
