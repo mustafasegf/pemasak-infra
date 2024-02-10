@@ -1,3 +1,5 @@
+import AuthNavbar from '@/components/AuthNavbar'
+import NavSidebar from '@/components/NavSidebar'
 import { createRootRoute, Link, Outlet, useRouterState } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/router-devtools'
 import { useEffect } from 'react'
@@ -10,17 +12,24 @@ export const Route = createRootRoute({
       console.log(routerState.location)
     }, [routerState.location])
 
+    const isAuthRoute = (
+      routerState.location.pathname === "/login"
+      || routerState.location.pathname === "/register"
+    )
+
     return (
       <div className="w-full h-full circle-bg min-h-screen text-foreground">
-        <div className="p-2 flex gap-2 fixed">
-          <Link to="/" className="[&.active]:font-bold">
-            Home
-          </Link>{' '}
-          <Link to="/about" className="[&.active]:font-bold">
-            About
-          </Link>
-        </div>
-        <Outlet />
+        {isAuthRoute ? (
+          <>
+            <AuthNavbar />
+            <Outlet />
+          </>
+        ) : (
+          <div className="flex w-full h-full">
+            <NavSidebar className="w-96" />
+            <Outlet />
+          </div>
+        )}
         <TanStackRouterDevtools />
       </div>
     )
