@@ -16,18 +16,13 @@ import { Route as rootRoute } from './routes/__root'
 
 // Create Virtual Routes
 
-const NewProjectLazyImport = createFileRoute('/new-project')()
 const RegisterLazyImport = createFileRoute('/register')()
 const LoginLazyImport = createFileRoute('/login')()
+const CreateProjectLazyImport = createFileRoute('/create-project')()
 const AboutLazyImport = createFileRoute('/about')()
 const IndexLazyImport = createFileRoute('/')()
 
 // Create/Update Routes
-
-const NewProjectLazyRoute = NewProjectLazyImport.update({
-  path: '/new-project',
-  getParentRoute: () => rootRoute,
-} as any).lazy(() => import('./routes/new-project.lazy').then((d) => d.Route))
 
 const RegisterLazyRoute = RegisterLazyImport.update({
   path: '/register',
@@ -38,6 +33,13 @@ const LoginLazyRoute = LoginLazyImport.update({
   path: '/login',
   getParentRoute: () => rootRoute,
 } as any).lazy(() => import('./routes/login.lazy').then((d) => d.Route))
+
+const CreateProjectLazyRoute = CreateProjectLazyImport.update({
+  path: '/create-project',
+  getParentRoute: () => rootRoute,
+} as any).lazy(() =>
+  import('./routes/create-project.lazy').then((d) => d.Route),
+)
 
 const AboutLazyRoute = AboutLazyImport.update({
   path: '/about',
@@ -61,16 +63,16 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutLazyImport
       parentRoute: typeof rootRoute
     }
+    '/create-project': {
+      preLoaderRoute: typeof CreateProjectLazyImport
+      parentRoute: typeof rootRoute
+    }
     '/login': {
       preLoaderRoute: typeof LoginLazyImport
       parentRoute: typeof rootRoute
     }
     '/register': {
       preLoaderRoute: typeof RegisterLazyImport
-      parentRoute: typeof rootRoute
-    }
-    '/new-project': {
-      preLoaderRoute: typeof NewProjectLazyImport
       parentRoute: typeof rootRoute
     }
   }
@@ -81,9 +83,9 @@ declare module '@tanstack/react-router' {
 export const routeTree = rootRoute.addChildren([
   IndexLazyRoute,
   AboutLazyRoute,
+  CreateProjectLazyRoute,
   LoginLazyRoute,
   RegisterLazyRoute,
-  NewProjectLazyRoute,
 ])
 
 /* prettier-ignore-end */

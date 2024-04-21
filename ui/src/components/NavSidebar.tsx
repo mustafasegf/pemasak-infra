@@ -1,6 +1,7 @@
 import { PersonIcon, PlusIcon } from "@radix-ui/react-icons";
 import { FC, ReactElement } from "react";
 import { Button } from "./ui/button";
+import { Link } from "@tanstack/react-router";
 
 export interface NavSidebarProps {
   className: string
@@ -36,9 +37,11 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
       </div>
       <hr className="border-slate-600" />
       <div className="flex flex-col items-center justify-center px-6 py-4">
-        <Button variant="outline" size="lg" className="w-full space-x-2 border-primary text-primary hover:bg-primary">
-          <PlusIcon className="mr-2 h-4 w-4" /> Create New Project
-        </Button>
+        <Link href="/create-project" to="/create-project">
+          <Button variant="outline" size="lg" className="w-full space-x-2 border-primary text-primary hover:bg-primary">
+            <PlusIcon className="mr-2 h-4 w-4" /> Create New Project
+          </Button>
+        </Link>
       </div>
     </div>
   )

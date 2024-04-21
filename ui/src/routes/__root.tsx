@@ -25,7 +25,7 @@ export const Route = createRootRoute({
             <Outlet />
           </>
         ) : (
-          <div className="flex w-full h-full min-h-screen overflow-hidden">
+          <div className="flex w-full h-full min-h-screen overflow-hidden max-h-screen">
             <NavSidebar className="w-96" />
             <Outlet />
           </div>

@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { Link, createLazyFileRoute } from '@tanstack/react-router';
 
 export const Route = createLazyFileRoute('/')({
   component: Index,
@@ -14,9 +14,11 @@ function NoProject() {
           <h1 className="text-3xl font-semibold">You currently have no projects</h1>
           <h2 className="text-lg">Let's create one easily</h2>
         </div>
-        <Button size="lg" className="text-white">
-          Create New Project
-        </Button>
+        <Link href="/create-project" to="/create-project">
+          <Button size="lg" className="text-white">
+            Create New Project
+          </Button>
+        </Link>
       </div>
     </div>
   )
