@@ -1,11 +1,7 @@
 use std::collections::HashSet;
 
 use axum::{
-    extract::State,
-    middleware::Next,
-    response::{Html, Response},
-    routing::get,
-    Form, Router,
+    extract::{self, Json, State}, middleware::Next, response::{Html, Response}, routing::get, Form, Router
 };
 use axum_extra::routing::RouterExt;
 use axum_session::SessionStore;
@@ -231,12 +227,30 @@ pub struct Jurusan {
     pub program: String,
 }
 
+#[derive(Serialize, Debug)]
+enum RegisterUserErrorType {
+    ValidationError,
+    BadRequestError,
+    InternalServerError,
+    SSOError,
+}
+
+#[derive(Serialize, Debug)]
+struct RegisterUserErrorResponse {
+    message: String,
+    error_type: RegisterUserErrorType
+}
+
+#[derive(Serialize, Debug)]
+struct RegisterUserSuccessResponse {
+    message: String,
+}
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn register_user(
     auth: Auth,
     State(AppState { pool, sso, .. }): State<AppState>,
-    Form(req): Form<Unvalidated<UserRequest>>,
+    Json(req): Json<Unvalidated<UserRequest>>,
 ) -> Response<Body> {
     let UserRequest {
         username,
@@ -245,15 +259,18 @@ pub async fn register_user(
     } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
-            let html = render_to_string(move || {
-                view! {
-                    <p> {err.to_string() } </p>
-                }
-            })
-            .into_owned();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
+                .body(
+                    Body::from(
+                        serde_json::to_string(
+                            &RegisterUserErrorResponse {
+                                message: err.to_string(),
+                                error_type: RegisterUserErrorType::ValidationError,
+                            }
+                        ).unwrap()
+                    )
+                )
                 .unwrap();
         }
     };
@@ -266,30 +283,27 @@ pub async fn register_user(
         Ok(None) => {}
         Err(err) => {
             tracing::error!(?err, "Can't get user: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to query database {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: format!("failed to query database: {}", err.to_string()),
+                error_type: RegisterUserErrorType::InternalServerError,
+            }).unwrap();
+            
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
 
         Ok(_) => {
-            let html = render_to_string(|| {
-                view! {
-                    <h1> Username already exists </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: "Username already exists".to_string(),
+                error_type: RegisterUserErrorType::BadRequestError,
+            }).unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     }
@@ -305,30 +319,27 @@ pub async fn register_user(
         Ok(None) => {}
         Err(err) => {
             tracing::error!(?err, "Can't get owners: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to query database {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: format!("failed to query database: {}", err.to_string()),
+                error_type: RegisterUserErrorType::InternalServerError,
+            }).unwrap();
+            
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
 
         Ok(_) => {
-            let html = render_to_string(|| {
-                view! {
-                    <h1> Username already exists </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: "Username already exists".to_string(),
+                error_type: RegisterUserErrorType::BadRequestError,
+            }).unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     }
@@ -341,17 +352,15 @@ pub async fn register_user(
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!(?err, "Can't register User: Failed to hash password");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to hash password {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: format!("failed to hash password: {}", err.to_string()),
+                error_type: RegisterUserErrorType::InternalServerError,
+            }).unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -360,17 +369,15 @@ pub async fn register_user(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(?err, "Can't insert user: Failed to begin transaction");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to begin transaction {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: "failed to request sso: Failed to begin transaction".to_string(),
+                error_type: RegisterUserErrorType::InternalServerError,
+            }).unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -398,17 +405,15 @@ pub async fn register_user(
                     tracing::error!(?err, "Can't register user: Failed to rollback transaction");
                 }
 
-                let html = render_to_string(move || {
-                    view! {
-                        <h1> Failed to request sso {err.to_string() } </h1>
-                    }
-                })
-                .into_owned();
+                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                    message: format!("failed to request sso: {}", err.to_string()),
+                    error_type: RegisterUserErrorType::InternalServerError,
+                }).unwrap();
 
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .header("Content-Type", "text/html")
-                    .body(Body::from(html))
+                    .body(Body::from(json))
                     .unwrap();
             }
         };
@@ -421,17 +426,15 @@ pub async fn register_user(
                     tracing::error!(?err, "Can't register user: Failed to rollback transaction");
                 }
 
-                let html = render_to_string(move || {
-                    view! {
-                        <h1> Failed to get body {err.to_string() } </h1>
-                    }
-                })
-                .into_owned();
+                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                    message: format!("failed to get body: {}", err.to_string()),
+                    error_type: RegisterUserErrorType::SSOError,
+                }).unwrap();
 
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .header("Content-Type", "text/html")
-                    .body(Body::from(html))
+                    .body(Body::from(json))
                     .unwrap();
             }
         };
@@ -441,17 +444,15 @@ pub async fn register_user(
         let sso_res = match serde_json::from_slice::<SsoResponse>(&body) {
             Ok(SsoResponse::ServiceResponse { service_response }) => service_response.authentication_success.attributes,
             Ok(SsoResponse::Error { .. }) => {
-                let html = render_to_string(move || {
-                    view! {
-                        <h1> "Wrong username or password" </h1>
-                    }
-                })
-                .into_owned();
+                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                    message: "Wrong username or password".to_string(),
+                    error_type: RegisterUserErrorType::SSOError,
+                }).unwrap();
 
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .header("Content-Type", "text/html")
-                    .body(Body::from(html))
+                    .body(Body::from(json))
                     .unwrap();
             }
             Err(err) => {
@@ -460,33 +461,29 @@ pub async fn register_user(
                     tracing::error!(?err, "Can't register user: Failed to rollback transaction");
                 }
 
-                let html = render_to_string(move || {
-                    view! {
-                        <h1> Failed to parse body {err.to_string() } </h1>
-                    }
-                })
-                .into_owned();
+                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                    message: format!("failed to parse body: {}", err.to_string()),
+                    error_type: RegisterUserErrorType::SSOError,
+                }).unwrap();
 
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .header("Content-Type", "text/html")
-                    .body(Body::from(html))
+                    .body(Body::from(json))
                     .unwrap();
             }
         };
 
         if sso_res.jurusan.faculty != "Ilmu Komputer" {
-            let html = render_to_string(move || {
-                view! {
-                    <h1> User is not from Ilmu Komputer </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: "User is not from UI Faculty of Computer Science".to_string(),
+                error_type: RegisterUserErrorType::SSOError,
+            }).unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     }
@@ -507,17 +504,15 @@ pub async fn register_user(
             tracing::error!(?err, "Can't insert user: Failed to rollback transaction");
         }
 
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to insert into database </h1>
-            }
-        })
-        .into_owned();
+        let json = serde_json::to_string(&RegisterUserErrorResponse {
+            message: format!("failed to insert into database: {}", err.to_string()),
+            error_type: RegisterUserErrorType::InternalServerError,
+        }).unwrap();
 
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "text/html")
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap();
     };
 
@@ -542,16 +537,14 @@ pub async fn register_user(
             );
         }
 
-        let html = render_to_string(move || {
-            view! {
-                <h1>Failed to insert into database</h1>
-            }
-        })
-        .into_owned();
+        let json = serde_json::to_string(&RegisterUserErrorResponse {
+            message: format!("failed to insert into database: {}", err.to_string()),
+            error_type: RegisterUserErrorType::InternalServerError,
+        }).unwrap();
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "text/html")
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap();
     };
 
@@ -574,48 +567,41 @@ pub async fn register_user(
                 "Can't insert users_owners: Failed to rollback transaction"
             );
         }
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to insert into database </h1>
-            }
-        })
-        .into_owned();
+        let json = serde_json::to_string(&RegisterUserErrorResponse {
+            message: format!("failed to insert into database: {}", err.to_string()),
+            error_type: RegisterUserErrorType::InternalServerError,
+        }).unwrap();
 
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "text/html")
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap();
     }
 
     match tx.commit().await {
         Err(err) => {
             tracing::error!(?err, "Can't register user: Failed to commit transaction");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to commit transaction {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: format!("failed to commit transaction: {}", err.to_string()),
+                error_type: RegisterUserErrorType::InternalServerError,
+            }).unwrap();
             Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap()
         }
         Ok(_) => {
             auth.login_user(user_id);
-            let html = render_to_string(|| {
-                view! {
-                    <h1> User created </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserSuccessResponse {
+                message: "User Created".to_string()
+            }).unwrap();
             Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "text/html")
                 .header("HX-Location", "/dashboard")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap()
         }
     }
@@ -688,22 +674,20 @@ pub struct LoginRequest {
 pub async fn login_user(
     auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
-    Form(LoginRequest { username, password }): Form<LoginRequest>,
+    Json(LoginRequest { username, password }): Json<LoginRequest>,
 ) -> Response<Body> {
     // get user
     let user = match User::get_from_username(&username, &pool).await {
         Ok(user) => user,
         Err(_err) => {
-            let html = render_to_string(|| {
-                view! {
-                    <h1> User does not exist </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: "Wrong username or password entered".to_string(),
+                error_type: RegisterUserErrorType::BadRequestError,
+            }).unwrap();
             return Response::builder()
-                .status(StatusCode::OK)
+                .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -713,15 +697,13 @@ pub async fn login_user(
     let hash = PasswordHash::new(&user.password).unwrap();
     if let Err(err) = hasher.verify_password(password.expose_secret().as_bytes(), &hash) {
         tracing::error!(?err, "Can't login: Failed to verify password");
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to verify password {err.to_string() } </h1>
-            }
-        })
-        .into_owned();
+        let json = serde_json::to_string(&RegisterUserErrorResponse {
+            message: "Wrong username or password entered".to_string(),
+            error_type: RegisterUserErrorType::BadRequestError,
+        }).unwrap();
         return Response::builder()
-            .status(500)
-            .body(Body::from(html))
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(json))
             .unwrap();
     };
 
