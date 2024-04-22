@@ -35,7 +35,6 @@ function Login() {
                 password: data.password,
             })
         })
-        console.log(request.statusText)
 
         if (request.status >= 400) {
             const data = await request.json()
