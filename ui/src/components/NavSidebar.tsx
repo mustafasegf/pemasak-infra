@@ -2,12 +2,15 @@ import { PersonIcon, PlusIcon } from "@radix-ui/react-icons";
 import { FC, ReactElement } from "react";
 import { Button } from "./ui/button";
 import { Link } from "@tanstack/react-router";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface NavSidebarProps {
   className: string
 }
 
 export default function NavSidebar({ className }: NavSidebarProps): ReactElement<FC<NavSidebarProps>> {
+  const auth = useAuth()
+
   return (
     <div className={`${className} border-r h-full min-h-screen border-slate-600 bg-[#020618]`}>
       <div className="flex space-x-4 items-center px-6 py-4">
@@ -24,10 +27,10 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
             <h1
               className="font-bold truncate"
             >
-              Stefanus Ndaru Wedhatama
+              {auth.user.name}
             </h1>
             <p className="text-slate-600">
-              stefanus.ndaru
+              {auth.user.username}
             </p>
           </div>
         </div>

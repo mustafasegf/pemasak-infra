@@ -13,34 +13,23 @@ import { useForm } from 'react-hook-form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 
 export const Route = createLazyFileRoute('/login')({
     component: Login,
 })
 
 function Login() {
+    const { handlers: { login } } = useAuth()
     const { register, handleSubmit } = useForm()
-    const router = useRouter()
 
     const [error, setError] = useState({ message: "", error_type: "" })
 
     async function submitHandler(data: any) {
-        const request = await fetch(`${import.meta.env.VITE_API_URL}/login`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                username: data.username,
-                password: data.password,
-            })
-        })
-
-        if (request.status >= 400) {
-            const data = await request.json()
-            setError(data)
-        } else {
-            router.navigate({ from: "/login", to: "/" })
+        try {
+            await login(data.username, data.password)
+        } catch (e: any) {
+            setError(e)
         }
     }
 

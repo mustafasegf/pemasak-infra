@@ -40,6 +40,7 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/register", get(register_user_ui).post(register_user))
         .route_with_tsr("/login", get(login_user_ui).post(login_user))
         .route_with_tsr("/logout", get(logout_user).post(logout_user))
+        .route_with_tsr("/validate", get(validate_auth))
 }
 
 pub async fn auth<B>(
@@ -77,13 +78,14 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub password: String,
+    pub name: String,
     pub permissions: HashSet<String>,
 }
 
 // TODO: do we need this?
 impl User {
     pub async fn get(id: &Uuid, pool: &PgPool) -> Result<User, sqlx::Error> {
-        let sqluser = sqlx::query!("SELECT id, username, password FROM users WHERE id = $1", id)
+        let sqluser = sqlx::query!("SELECT id, username, name, password FROM users WHERE id = $1", id)
             .fetch_one(pool)
             .await?;
 
@@ -95,6 +97,7 @@ impl User {
         Ok(Self {
             id: sqluser.id,
             username: sqluser.username,
+            name: sqluser.name,
             password: sqluser.password,
             permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
@@ -102,7 +105,7 @@ impl User {
 
     pub async fn get_from_username(username: &str, pool: &PgPool) -> Result<Self, sqlx::Error> {
         let sqluser = sqlx::query!(
-            "SELECT id, username, password FROM users WHERE username = $1",
+            "SELECT id, username, name, password FROM users WHERE username = $1",
             username
         )
         .fetch_one(pool)
@@ -117,6 +120,7 @@ impl User {
 
         Ok(Self {
             id: sqluser.id,
+            name: sqluser.name,
             username: sqluser.username,
             password: sqluser.password,
             permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
@@ -760,5 +764,54 @@ pub async fn login_user_ui(auth: Auth) -> Response<Body> {
         .status(StatusCode::OK)
         .header("Content-Type", "text/html")
         .body(Body::from(html))
+        .unwrap()
+}
+
+#[derive(Serialize, Debug)]
+pub struct ValidateAuthResponse {
+    id: Uuid,
+    username: String,
+    name: String,
+}
+
+#[tracing::instrument(skip(auth))]
+pub async fn validate_auth(
+    auth: Auth,
+    State(AppState { pool, .. }): State<AppState>,
+) -> Response<Body> {
+    if auth.current_user.is_none() {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    let current_user = auth.current_user.unwrap();
+    let user = match User::get_from_username(&current_user.username, &pool).await {
+        Ok(user) => user,
+        Err(_err) => {
+            let json = serde_json::to_string(&RegisterUserErrorResponse {
+                message: "User not found".to_string(),
+                error_type: RegisterUserErrorType::BadRequestError,
+            }).unwrap();
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "text/html")
+                .body(Body::from(json))
+                .unwrap();
+        }
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from(
+            serde_json::to_string(
+                &ValidateAuthResponse {
+                    id: user.id,
+                    username: user.username,
+                    name: user.name,
+                }
+            ).unwrap()
+        ))
         .unwrap()
 }

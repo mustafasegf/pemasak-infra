@@ -41,8 +41,15 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(Any)
-        .allow_origin(Any);
+        .allow_headers([
+            "Content-Type".parse().unwrap(),
+        ])
+        .allow_origin([
+            "http://localhost:8080".parse().unwrap(),
+            "http://localhost:5173".parse().unwrap(),
+            config.domain().parse().unwrap(),
+        ])
+        .allow_credentials(true);
 
     let git_router = git::router(state.clone(), &config);
     let auth_router = auth::router(state.clone(), &config).await;
