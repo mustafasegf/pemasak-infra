@@ -30,7 +30,6 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
             name: "",
         },
         authenticated: false,
-        initialized: false,
         handlers: {
             login: (username: string, password: string) => { },
             refreshAuthState: () => { }
@@ -81,7 +80,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
                     username: data.username,
                     name: data.name,
                 },
-                authenticated: true
+                authenticated: true,
             })
         } catch (e) {
             setAuth({
@@ -91,29 +90,28 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
                     username: "",
                     name: "",
                 },
-                authenticated: false
+                authenticated: false,
             })
         }
     }
 
     useEffect(() => {
-        if (!auth.initialized) {
-            refreshAuthState()
-            setAuth({
-                ...auth,
-                initialized: true
-            })
-        }
-    }, [auth])
+        refreshAuthState()
+        const interval = setInterval(refreshAuthState, 5 * 60 * 1000)
+
+        return () => clearInterval(interval)
+    }, [])
 
     return (
-        <AuthContext.Provider value={{
-            ...auth,
-            handlers: {
-                login,
-                refreshAuthState,
-            }
-        }}>
+        <AuthContext.Provider 
+            value={{
+                ...auth,
+                handlers: {
+                    login,
+                    refreshAuthState,
+                }
+            }}
+        >
             {children}
         </AuthContext.Provider>
     )
