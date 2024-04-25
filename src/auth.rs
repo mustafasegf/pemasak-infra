@@ -37,10 +37,10 @@ pub type Auth = AuthSession<User, Uuid, SessionPgPool, PgPool>;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route_with_tsr("/register", get(register_user_ui).post(register_user))
-        .route_with_tsr("/login", get(login_user_ui).post(login_user))
-        .route_with_tsr("/logout", get(logout_user).post(logout_user))
-        .route_with_tsr("/validate", get(validate_auth))
+        .route_with_tsr("/api/register", get(register_user_ui).post(register_user))
+        .route_with_tsr("/api/login", get(login_user_ui).post(login_user))
+        .route_with_tsr("/api/logout", get(logout_user).post(logout_user))
+        .route_with_tsr("/api/validate", get(validate_auth))
 }
 
 pub async fn auth<B>(
@@ -51,7 +51,7 @@ pub async fn auth<B>(
     if auth.current_user.is_none() {
         return Err(Response::builder()
             .status(StatusCode::FOUND)
-            .header("Location", "/login")
+            .header("Location", "/api/login")
             .body(Body::empty())
             .unwrap());
     }
@@ -604,7 +604,7 @@ pub async fn register_user(
             Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "text/html")
-                .header("HX-Location", "/dashboard")
+                .header("HX-Location", "/api/dashboard")
                 .body(Body::from(json))
                 .unwrap()
         }
@@ -663,7 +663,7 @@ pub async fn logout_user(auth: Auth) -> Response<Body> {
     auth.logout_user();
     Response::builder()
         .status(StatusCode::FOUND)
-        .header("Location", "/login")
+        .header("Location", "/api/login")
         .body(Body::empty())
         .unwrap()
 }
@@ -714,7 +714,7 @@ pub async fn login_user(
     auth.login_user(user.id);
     Response::builder()
         .status(StatusCode::FOUND)
-        .header("HX-Location", "/dashboard")
+        .header("HX-Location", "/api/dashboard")
         .body(Body::empty())
         .unwrap()
 }
@@ -724,7 +724,7 @@ pub async fn login_user_ui(auth: Auth) -> Response<Body> {
     if auth.current_user.is_some() {
         return Response::builder()
             .status(StatusCode::FOUND)
-            .header("Location", "/dashboard")
+            .header("Location", "/api/dashboard")
             .body(Body::empty())
             .unwrap();
     }

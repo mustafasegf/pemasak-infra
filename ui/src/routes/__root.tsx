@@ -14,8 +14,8 @@ export const Route = createRootRoute({
     }, [routerState.location])
 
     const isAuthRoute = (
-      routerState.location.pathname === "/login"
-      || routerState.location.pathname === "/register"
+      routerState.location.pathname === "/web/login"
+      || routerState.location.pathname === "/web/register"
     )
 
     return (

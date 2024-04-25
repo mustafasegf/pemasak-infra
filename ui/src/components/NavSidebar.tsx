@@ -14,7 +14,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
   return (
     <div className={`${className} border-r h-full min-h-screen border-slate-600 bg-[#020618]`}>
       <div className="flex space-x-4 items-center px-6 py-4">
-        <img className="w-12 h-12" src="/InfraCook.png" />
+        <img className="w-12 h-12" src="/web/InfraCook.png" />
         <h1 className="italic text-lg font-medium">
           PWS - Pacil Web Service
         </h1>

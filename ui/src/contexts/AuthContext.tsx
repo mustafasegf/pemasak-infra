@@ -9,7 +9,7 @@ export const AuthContext = createContext({
     },
     authenticated: false,
     handlers: {
-        login: (username: string, password: string) => {},
+        login: (_username: string, _password: string) => {},
         refreshAuthState: () => { }
     }
 })
@@ -31,7 +31,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
         },
         authenticated: false,
         handlers: {
-            login: (username: string, password: string) => { },
+            login: (_username: string, _password: string) => { },
             refreshAuthState: () => { }
         }
     })

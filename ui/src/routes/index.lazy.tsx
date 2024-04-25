@@ -8,7 +8,7 @@ export const Route = createLazyFileRoute('/')({
 function NoProject() {
   return (
     <div className="h-full flex flex-col justify-center items-center">
-      <img src="/no-project.svg" />
+      <img src="/web/no-project.svg" />
       <div className="flex flex-col justify-center items-center space-y-4">
         <div className="space-y-2 text-center">
           <h1 className="text-3xl font-semibold">You currently have no projects</h1>

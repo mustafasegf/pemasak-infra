@@ -11,7 +11,7 @@ use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 use sqlx::PgPool;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 use std::net::{SocketAddr, TcpListener};
@@ -72,10 +72,8 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         )
         .layer(SessionLayer::new(session_store))
         .nest_service("/assets", ServeDir::new("assets"))
-        .route(
-            "/",
-            axum::routing::get(|| async { axum::response::Redirect::temporary("/dashboard") }),
-        )
+        // TODO: find a way to have this on the "/" path instead of "/web"
+        .nest_service("/web", ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")))
         .fallback(fallback)
         .with_state(state.clone())
         .route_layer(middleware::from_fn_with_state(state, fallback_middleware))

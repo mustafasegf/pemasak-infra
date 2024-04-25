@@ -1,4 +1,4 @@
-import { Link, createLazyFileRoute, useRouter } from '@tanstack/react-router';
+import { Link, createLazyFileRoute } from '@tanstack/react-router';
 import {
     Card,
     CardContent,
