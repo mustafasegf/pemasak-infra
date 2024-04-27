@@ -1,6 +1,5 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import Spinner from '@/components/ui/spinner';
 import { Link, createLazyFileRoute } from '@tanstack/react-router';
 import useSWR from 'swr';
 

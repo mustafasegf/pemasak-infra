@@ -1,4 +1,4 @@
-import { ChevronRightIcon, DoubleArrowRightIcon, HomeIcon, PersonIcon, PlusIcon } from "@radix-ui/react-icons";
+import { DoubleArrowRightIcon, HomeIcon, PersonIcon, PlusIcon } from "@radix-ui/react-icons";
 import { FC, ReactElement } from "react";
 import { Button } from "./ui/button";
 import { Link } from "@tanstack/react-router";
