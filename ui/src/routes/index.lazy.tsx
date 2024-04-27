@@ -60,8 +60,8 @@ function Index() {
             <div className="grid grid-cols-2 gap-8">
               {projects?.data?.map((item: any) => (
                 <Link
-                  href={`/web/${item.owner_name}/${item.name}`}
-                  to="/project/$owner/$project"
+                  href={`/web/${item.owner_name}/${item.name}/`}
+                  to="/project/$owner/$project/"
                   params={{
                     owner: item.owner_name,
                     project: item.name

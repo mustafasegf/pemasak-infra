@@ -82,7 +82,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
             <Link
               className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
               href={`/web/project/${item.owner_name}/${item.name}`}
-              to={`/project/$owner/$project`}
+              to={`/project/$owner/$project/`}
               params={{
                 owner: item.owner_name,
                 project: item.name
