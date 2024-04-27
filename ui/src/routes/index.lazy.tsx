@@ -52,7 +52,7 @@ function Index() {
         </div>
       </div>
 
-      <div className="h-full mt-24 p-8 space-y-4">
+      <div className="h-full mt-24 p-8 space-y-8">
         <h1 className="font-semibold text-2xl">Project List</h1>
         {isLoading || !projects?.data?.length ? <NoProject /> : (
           <div className="grid grid-cols-2 gap-8">

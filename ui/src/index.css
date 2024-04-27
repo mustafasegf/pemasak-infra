@@ -54,4 +54,25 @@
         opacity: 1;
         background-image: repeating-radial-gradient(circle at 0 0, transparent 0, #020617 18px), repeating-linear-gradient(#060e2255, #060e22);
     }
+
+    /* width */
+    ::-webkit-scrollbar {
+        width: 0.5rem;
+        padding: 1px
+    }
+
+    /* Track */
+    ::-webkit-scrollbar-track {
+        @apply bg-slate-700
+    }
+
+    /* Handle */
+    ::-webkit-scrollbar-thumb {
+        @apply bg-slate-800 rounded-full
+    }
+
+    /* Handle on hover */
+    ::-webkit-scrollbar-thumb:hover {
+        @apply bg-slate-900
+    }    
 }
