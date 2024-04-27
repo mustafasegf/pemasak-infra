@@ -1,12 +1,12 @@
 use axum::{
     extract::State,
     response::Response,
-    Form,
+    Form, Json,
 };
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use leptos::{ssr::render_to_string, *};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use uuid::Uuid;
 
@@ -34,26 +34,38 @@ pub struct CreateProjectRequest {
     pub project: String,
 }
 
+#[derive(Serialize, Debug)]
+struct ErrorResponse {
+    message: String
+}
+
+#[derive(Serialize, Debug)]
+struct CreateProjectResponse {
+    owner_name: String,
+    project_name: String,
+    domain: String,
+    git_username: String,
+    git_password: String,
+}
+
 #[tracing::instrument(skip(pool, base, domain))]
 pub async fn post(
     auth: Auth,
     State(AppState {
         pool, base, domain, secure, ..
     }): State<AppState>,
-    Form(req): Form<Unvalidated<CreateProjectRequest>>,
+    Json(req): Json<Unvalidated<CreateProjectRequest>>,
 ) -> Response<Body> {    
     let CreateProjectRequest { owner, project } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
-            let html = render_to_string(move || {
-                view! {
-                    <p> {err.to_string() } </p>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: err.to_string()
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -73,28 +85,25 @@ pub async fn post(
     {
         Ok(Some(data)) => data.id,
         Ok(None) => {
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Owner does not exist </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Owner does not exist".to_string()
+            }).unwrap();
+            
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
         Err(err) => {
             tracing::error!(?err, "Can't get project_owners: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to query database {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database {}", err.to_string())
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -110,28 +119,24 @@ pub async fn post(
     {
         Ok(None) => {}
         Ok(_) => {
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Project already exist</h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Project already exists".to_string(),
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::CONFLICT)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
         Err(err) => {
             tracing::error!(?err, "Can't get projects: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to query database {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database {}", err.to_string())
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     }
@@ -141,17 +146,15 @@ pub async fn post(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(?err, "Can't insert user: Failed to begin transaction");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to begin transaction {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to begin transaction {}", err.to_string())
+            }).unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -179,30 +182,26 @@ pub async fn post(
                 );
             }
 
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to insert into database</h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Failed to insert into database".to_string()
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
 
     if let Err(err) = git2::Repository::init_bare(path) {
         tracing::error!(?err, "Can't create project: Failed to create repo");
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to create project: {err.to_string() } </h1>
-            }
-        })
-        .into_owned();
+        let json = serde_json::to_string(&ErrorResponse {
+            message: format!("Failed to create project: {}", err.to_string())
+        }).unwrap();
+
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap();
     }
 
@@ -221,15 +220,14 @@ pub async fn post(
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!(?err, "Can't create project: Failed to hash token");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to generate token {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to generate token {}", err.to_string())
+            }).unwrap();
+            
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -247,29 +245,28 @@ pub async fn post(
             ?err,
             "Can't insert api_token: Failed to insert into database"
         );
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to insert into database {err.to_string() } </h1>
-            }
-        })
-        .into_owned();
+
+        let json = serde_json::to_string(&ErrorResponse {
+            message: format!("Failed to insert into database {}", err.to_string())
+        }).unwrap();
+
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap();
     };
 
     if let Err(err) = tx.commit().await {
         tracing::error!(?err, "Can't create project: Failed to commit transaction");
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to commit transaction {err.to_string() } </h1>
-            }
-        })
-        .into_owned();
+
+        let json = serde_json::to_string(&ErrorResponse {
+            message: format!("Failed to commit transaction: {}", err.to_string())
+        }).unwrap();
+
+
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap();
     }
 
@@ -280,78 +277,19 @@ pub async fn post(
 
     let username = auth.current_user.unwrap().username;
 
-    let html = render_to_string(move || {
-        view! {
-            <h1> Project created successfully  </h1>
-            <div class="p-4 mt-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
-                <pre>
-                    <code>
-                        "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
-                    </code>
-                </pre>
-                <pre>
-                    <code>
-                        "git branch -M master" 
-                    </code>
-                </pre>
-                <pre>
-                    <code>
-                        "git push pws master"
-                    </code>
-                </pre>
-            </div>
-            <button
-                class="btn btn-outline btn-secondary mt-4"
-                onclick="
-                    let lb = '\\n'
-                    if(navigator.userAgent.indexOf('Windows') != -1) {{
-                    lb = '\\r\\n'
-                    }}
-
-                    let text = document.getElementById('code').innerText.replaceAll('\\n', lb)
-                    if ('clipboard' in window.navigator) {{
-                        navigator.clipboard.writeText(text)
-                    }}
-                "
-            >
-              Copy to clipboard
-            </button>
-
-            <div role="alert" class="alert alert-error mt-4">
-                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <span>MAKE SURE TO COPY THE CREDENTIAL BELOW AS YOU WILL NOT BE ABLE TO ACCESS IT AGAIN</span>
-            </div>
-
-            <div class="p-4 mt-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="token">
-                <pre><code>
-                  {"Username: "}{username}
-                </code></pre>
-                <pre><code>
-                  {"Password: "}{token}
-                </code></pre>
-            </div>
-            <button
-                class="btn btn-outline btn-secondary mt-4"
-                onclick="
-                let lb = '\\n'
-                if(navigator.userAgent.indexOf('Windows') != -1) {{
-                lb = '\\r\\n'
-                }}
-
-                let text = document.getElementById('token').innerText.replaceAll('\\n', lb)
-                if ('clipboard' in window.navigator) {{
-                    navigator.clipboard.writeText(text)
-                }}"
-            >
-              Copy to clipboard
-            </button>
+    let json = serde_json::to_string(
+        &CreateProjectResponse {
+            owner_name: owner.clone(),
+            project_name: project.clone(),
+            domain: format!("{protocol}://{domain}/{owner}/{project}"),
+            git_username: username,
+            git_password: token,
         }
-    })
-    .into_owned();
+    ).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
-        .body(Body::from(html))
+        .body(Body::from(json))
         .unwrap()
 }
 

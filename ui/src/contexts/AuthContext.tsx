@@ -68,8 +68,8 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
             const data = await request.json()
             throw data
         }
-        await refreshAuthState()
 
+        await refreshAuthState()
         // I know this is terrible, I hate React, please make setState awaitable holy %@!#
         // @ts-ignore
         setTimeout(() => navigate({ from: location.pathname, to: search?.redirect || "/" }), 50)

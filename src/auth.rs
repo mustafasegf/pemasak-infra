@@ -240,7 +240,7 @@ enum RegisterUserErrorType {
 }
 
 #[derive(Serialize, Debug)]
-struct RegisterUserErrorResponse {
+struct ErrorResponse {
     message: String,
     error_type: RegisterUserErrorType
 }
@@ -268,7 +268,7 @@ pub async fn register_user(
                 .body(
                     Body::from(
                         serde_json::to_string(
-                            &RegisterUserErrorResponse {
+                            &ErrorResponse {
                                 message: err.to_string(),
                                 error_type: RegisterUserErrorType::ValidationError,
                             }
@@ -287,7 +287,7 @@ pub async fn register_user(
         Ok(None) => {}
         Err(err) => {
             tracing::error!(?err, "Can't get user: Failed to query database");
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: format!("failed to query database: {}", err.to_string()),
                 error_type: RegisterUserErrorType::InternalServerError,
             }).unwrap();
@@ -300,7 +300,7 @@ pub async fn register_user(
         }
 
         Ok(_) => {
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: "Username already exists".to_string(),
                 error_type: RegisterUserErrorType::BadRequestError,
             }).unwrap();
@@ -323,7 +323,7 @@ pub async fn register_user(
         Ok(None) => {}
         Err(err) => {
             tracing::error!(?err, "Can't get owners: Failed to query database");
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: format!("failed to query database: {}", err.to_string()),
                 error_type: RegisterUserErrorType::InternalServerError,
             }).unwrap();
@@ -336,7 +336,7 @@ pub async fn register_user(
         }
 
         Ok(_) => {
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: "Username already exists".to_string(),
                 error_type: RegisterUserErrorType::BadRequestError,
             }).unwrap();
@@ -356,7 +356,7 @@ pub async fn register_user(
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!(?err, "Can't register User: Failed to hash password");
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: format!("failed to hash password: {}", err.to_string()),
                 error_type: RegisterUserErrorType::InternalServerError,
             }).unwrap();
@@ -373,7 +373,7 @@ pub async fn register_user(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(?err, "Can't insert user: Failed to begin transaction");
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: "failed to request sso: Failed to begin transaction".to_string(),
                 error_type: RegisterUserErrorType::InternalServerError,
             }).unwrap();
@@ -409,7 +409,7 @@ pub async fn register_user(
                     tracing::error!(?err, "Can't register user: Failed to rollback transaction");
                 }
 
-                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                let json = serde_json::to_string(&ErrorResponse {
                     message: format!("failed to request sso: {}", err.to_string()),
                     error_type: RegisterUserErrorType::InternalServerError,
                 }).unwrap();
@@ -430,7 +430,7 @@ pub async fn register_user(
                     tracing::error!(?err, "Can't register user: Failed to rollback transaction");
                 }
 
-                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                let json = serde_json::to_string(&ErrorResponse {
                     message: format!("failed to get body: {}", err.to_string()),
                     error_type: RegisterUserErrorType::SSOError,
                 }).unwrap();
@@ -448,7 +448,7 @@ pub async fn register_user(
         let sso_res = match serde_json::from_slice::<SsoResponse>(&body) {
             Ok(SsoResponse::ServiceResponse { service_response }) => service_response.authentication_success.attributes,
             Ok(SsoResponse::Error { .. }) => {
-                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                let json = serde_json::to_string(&ErrorResponse {
                     message: "Wrong username or password".to_string(),
                     error_type: RegisterUserErrorType::SSOError,
                 }).unwrap();
@@ -465,7 +465,7 @@ pub async fn register_user(
                     tracing::error!(?err, "Can't register user: Failed to rollback transaction");
                 }
 
-                let json = serde_json::to_string(&RegisterUserErrorResponse {
+                let json = serde_json::to_string(&ErrorResponse {
                     message: format!("failed to parse body: {}", err.to_string()),
                     error_type: RegisterUserErrorType::SSOError,
                 }).unwrap();
@@ -479,7 +479,7 @@ pub async fn register_user(
         };
 
         if sso_res.jurusan.faculty != "Ilmu Komputer" {
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: "User is not from UI Faculty of Computer Science".to_string(),
                 error_type: RegisterUserErrorType::SSOError,
             }).unwrap();
@@ -508,7 +508,7 @@ pub async fn register_user(
             tracing::error!(?err, "Can't insert user: Failed to rollback transaction");
         }
 
-        let json = serde_json::to_string(&RegisterUserErrorResponse {
+        let json = serde_json::to_string(&ErrorResponse {
             message: format!("failed to insert into database: {}", err.to_string()),
             error_type: RegisterUserErrorType::InternalServerError,
         }).unwrap();
@@ -541,7 +541,7 @@ pub async fn register_user(
             );
         }
 
-        let json = serde_json::to_string(&RegisterUserErrorResponse {
+        let json = serde_json::to_string(&ErrorResponse {
             message: format!("failed to insert into database: {}", err.to_string()),
             error_type: RegisterUserErrorType::InternalServerError,
         }).unwrap();
@@ -571,7 +571,7 @@ pub async fn register_user(
                 "Can't insert users_owners: Failed to rollback transaction"
             );
         }
-        let json = serde_json::to_string(&RegisterUserErrorResponse {
+        let json = serde_json::to_string(&ErrorResponse {
             message: format!("failed to insert into database: {}", err.to_string()),
             error_type: RegisterUserErrorType::InternalServerError,
         }).unwrap();
@@ -586,7 +586,7 @@ pub async fn register_user(
     match tx.commit().await {
         Err(err) => {
             tracing::error!(?err, "Can't register user: Failed to commit transaction");
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: format!("failed to commit transaction: {}", err.to_string()),
                 error_type: RegisterUserErrorType::InternalServerError,
             }).unwrap();
@@ -684,7 +684,7 @@ pub async fn login_user(
     let user = match User::get_from_username(&username, &pool).await {
         Ok(user) => user,
         Err(_err) => {
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: "Wrong username or password entered".to_string(),
                 error_type: RegisterUserErrorType::BadRequestError,
             }).unwrap();
@@ -701,7 +701,7 @@ pub async fn login_user(
     let hash = PasswordHash::new(&user.password).unwrap();
     if let Err(err) = hasher.verify_password(password.expose_secret().as_bytes(), &hash) {
         tracing::error!(?err, "Can't login: Failed to verify password");
-        let json = serde_json::to_string(&RegisterUserErrorResponse {
+        let json = serde_json::to_string(&ErrorResponse {
             message: "Wrong username or password entered".to_string(),
             error_type: RegisterUserErrorType::BadRequestError,
         }).unwrap();
@@ -790,7 +790,7 @@ pub async fn validate_auth(
     let user = match User::get_from_username(&current_user.username, &pool).await {
         Ok(user) => user,
         Err(_err) => {
-            let json = serde_json::to_string(&RegisterUserErrorResponse {
+            let json = serde_json::to_string(&ErrorResponse {
                 message: "User not found".to_string(),
                 error_type: RegisterUserErrorType::BadRequestError,
             }).unwrap();
