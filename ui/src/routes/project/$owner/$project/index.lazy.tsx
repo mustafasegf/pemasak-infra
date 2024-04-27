@@ -1,13 +1,5 @@
-import { createLazyFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute } from '@tanstack/react-router'
 
 export const Route = createLazyFileRoute('/project/$owner/$project/')({
-    component: ProjectDashboard,
+  component: () => <div>Hello /project/$owner/$project/!</div>
 })
-
-function ProjectDashboard() {
-    return (
-        <div className="w-full relative min-h-screen">
-        
-        </div>
-    )
-}

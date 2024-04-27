@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import Spinner from '@/components/ui/spinner';
 
 export const Route = createLazyFileRoute('/login')({
     component: Login,
@@ -21,7 +22,7 @@ export const Route = createLazyFileRoute('/login')({
 
 function Login() {
     const { handlers: { login } } = useAuth()
-    const { register, handleSubmit } = useForm()
+    const { register, handleSubmit, formState: { isSubmitting } } = useForm()
 
     const [error, setError] = useState({ message: "", error_type: "" })
 
@@ -61,9 +62,15 @@ function Login() {
                     </div>
                 </CardContent>
                 <CardFooter className="flex flex-col items-center justify-center space-y-4 pt-4">
-                    <Button size="lg" variant="default" className="w-2/3 text-foreground">
-                        Login
-                    </Button>
+                    {!isSubmitting ? (
+                        <Button size="lg" className="text-foreground w-2/3">
+                            Login
+                        </Button>
+                        ) : (
+                        <Button disabled size="lg" className="text-foreground w-2/3">
+                            <Spinner className="mr-2" /> Logging In
+                        </Button>
+                    )}
                     <div className="text-center">
                         <p>
                             Don't have an account?

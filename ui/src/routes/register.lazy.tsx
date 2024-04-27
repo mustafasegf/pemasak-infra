@@ -13,13 +13,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircledIcon, ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useForm } from 'react-hook-form';
 import { useState } from 'react';
+import Spinner from '@/components/ui/spinner';
 
 export const Route = createLazyFileRoute('/register')({
     component: Register,
 })
 
 function Register() {
-    const { register, handleSubmit } = useForm()
+    const { register, handleSubmit, formState: { isSubmitting } } = useForm()
     const router = useRouter()
 
     const [error, setError] = useState({ message: "", error_type: "" })
@@ -64,7 +65,7 @@ function Register() {
                     </AlertDescription>
                 </Alert>
             )}
-            
+
             <Card className="max-w-lg w-full bg-slate-900 border-slate-600 p-2">
                 <CardHeader>
                     <CardTitle className="text-center text-3xl">Register Account</CardTitle>
@@ -92,9 +93,15 @@ function Register() {
                     </Alert>
                 </CardContent>
                 <CardFooter className="flex flex-col items-center justify-center space-y-4">
-                    <Button size="lg" variant="default" className="w-2/3 text-foreground">
-                        Register
-                    </Button>
+                    {!isSubmitting ? (
+                        <Button size="lg" className="text-foreground w-2/3">
+                            Register
+                        </Button>
+                    ) : (
+                        <Button disabled size="lg" className="text-foreground w-2/3">
+                            <Spinner className="mr-2" /> Registering Your Account
+                        </Button>
+                    )}
                 </CardFooter>
             </Card>
         </form>

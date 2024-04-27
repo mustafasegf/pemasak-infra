@@ -21,8 +21,20 @@ const LoginLazyImport = createFileRoute('/login')()
 const CreateProjectLazyImport = createFileRoute('/create-project')()
 const AboutLazyImport = createFileRoute('/about')()
 const IndexLazyImport = createFileRoute('/')()
+const ProjectOwnerProjectLazyImport = createFileRoute(
+  '/project/$owner/$project',
+)()
 const ProjectOwnerProjectIndexLazyImport = createFileRoute(
   '/project/$owner/$project/',
+)()
+const ProjectOwnerProjectTerminalLazyImport = createFileRoute(
+  '/project/$owner/$project/terminal',
+)()
+const ProjectOwnerProjectSettingsLazyImport = createFileRoute(
+  '/project/$owner/$project/settings',
+)()
+const ProjectOwnerProjectLogsLazyImport = createFileRoute(
+  '/project/$owner/$project/logs',
 )()
 
 // Create/Update Routes
@@ -54,12 +66,47 @@ const IndexLazyRoute = IndexLazyImport.update({
   getParentRoute: () => rootRoute,
 } as any).lazy(() => import('./routes/index.lazy').then((d) => d.Route))
 
+const ProjectOwnerProjectLazyRoute = ProjectOwnerProjectLazyImport.update({
+  path: '/project/$owner/$project',
+  getParentRoute: () => rootRoute,
+} as any).lazy(() =>
+  import('./routes/project/$owner/$project.lazy').then((d) => d.Route),
+)
+
 const ProjectOwnerProjectIndexLazyRoute =
   ProjectOwnerProjectIndexLazyImport.update({
-    path: '/project/$owner/$project/',
-    getParentRoute: () => rootRoute,
+    path: '/',
+    getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any).lazy(() =>
     import('./routes/project/$owner/$project/index.lazy').then((d) => d.Route),
+  )
+
+const ProjectOwnerProjectTerminalLazyRoute =
+  ProjectOwnerProjectTerminalLazyImport.update({
+    path: '/terminal',
+    getParentRoute: () => ProjectOwnerProjectLazyRoute,
+  } as any).lazy(() =>
+    import('./routes/project/$owner/$project/terminal.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+
+const ProjectOwnerProjectSettingsLazyRoute =
+  ProjectOwnerProjectSettingsLazyImport.update({
+    path: '/settings',
+    getParentRoute: () => ProjectOwnerProjectLazyRoute,
+  } as any).lazy(() =>
+    import('./routes/project/$owner/$project/settings.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+
+const ProjectOwnerProjectLogsLazyRoute =
+  ProjectOwnerProjectLogsLazyImport.update({
+    path: '/logs',
+    getParentRoute: () => ProjectOwnerProjectLazyRoute,
+  } as any).lazy(() =>
+    import('./routes/project/$owner/$project/logs.lazy').then((d) => d.Route),
   )
 
 // Populate the FileRoutesByPath interface
@@ -86,9 +133,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RegisterLazyImport
       parentRoute: typeof rootRoute
     }
+    '/project/$owner/$project': {
+      preLoaderRoute: typeof ProjectOwnerProjectLazyImport
+      parentRoute: typeof rootRoute
+    }
+    '/project/$owner/$project/logs': {
+      preLoaderRoute: typeof ProjectOwnerProjectLogsLazyImport
+      parentRoute: typeof ProjectOwnerProjectLazyImport
+    }
+    '/project/$owner/$project/settings': {
+      preLoaderRoute: typeof ProjectOwnerProjectSettingsLazyImport
+      parentRoute: typeof ProjectOwnerProjectLazyImport
+    }
+    '/project/$owner/$project/terminal': {
+      preLoaderRoute: typeof ProjectOwnerProjectTerminalLazyImport
+      parentRoute: typeof ProjectOwnerProjectLazyImport
+    }
     '/project/$owner/$project/': {
       preLoaderRoute: typeof ProjectOwnerProjectIndexLazyImport
-      parentRoute: typeof rootRoute
+      parentRoute: typeof ProjectOwnerProjectLazyImport
     }
   }
 }
@@ -101,7 +164,12 @@ export const routeTree = rootRoute.addChildren([
   CreateProjectLazyRoute,
   LoginLazyRoute,
   RegisterLazyRoute,
-  ProjectOwnerProjectIndexLazyRoute,
+  ProjectOwnerProjectLazyRoute.addChildren([
+    ProjectOwnerProjectLogsLazyRoute,
+    ProjectOwnerProjectSettingsLazyRoute,
+    ProjectOwnerProjectTerminalLazyRoute,
+    ProjectOwnerProjectIndexLazyRoute,
+  ]),
 ])
 
 /* prettier-ignore-end */

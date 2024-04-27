@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import Spinner from '@/components/ui/spinner';
 import { Link, createLazyFileRoute } from '@tanstack/react-router';
 import useSWR from 'swr';
 
@@ -58,7 +59,15 @@ function Index() {
             <h1 className="font-semibold text-2xl">Project List</h1>
             <div className="grid grid-cols-2 gap-8">
               {projects?.data?.map((item: any) => (
-                <div className="bg-slate-900 border p-8 rounded-lg space-y-4 border-slate-500 hover:border-blue-400 transition-all cursor-pointer">
+                <Link
+                  href={`/web/${item.owner_name}/${item.name}`}
+                  to="/project/$owner/$project"
+                  params={{
+                    owner: item.owner_name,
+                    project: item.name
+                  }}
+                  className="bg-slate-900 border p-8 rounded-lg space-y-4 border-slate-500 hover:border-blue-400 transition-all cursor-pointer"
+                >
                   <div className="space-y-1">
                     <h1 className="text-lg font-semibold">{item.owner_name}/{item.name}</h1>
                     <h2 className="text-sm text-blue-400">{item.id}</h2>
@@ -67,7 +76,7 @@ function Index() {
                   <Badge className="bg-slate-700 hover:bg-slate-700 text-white rounded-full font-medium">
                     Status: Empty
                   </Badge>
-                </div>
+                </Link>
               ))}
             </div>
           </>

@@ -15,6 +15,7 @@ import { ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
 import { useSWRConfig } from 'swr';
+import Spinner from '@/components/ui/spinner';
 
 export const Route = createLazyFileRoute('/create-project')({
   component: NewProject,
@@ -24,7 +25,12 @@ function NewProject() {
   const auth = useAuth()
   const { mutate } = useSWRConfig()
 
-  const { handleSubmit, register, control } = useForm()
+  const {
+    formState: { isSubmitting },
+    handleSubmit,
+    register, 
+    control 
+  } = useForm()
 
   const [response, setResponse] = useState<{
     owner_name: string
@@ -110,9 +116,15 @@ function NewProject() {
                 <Input className="bg-slate-900 border-slate-600 bg-opacity-90 min-w-96" {...register("project")} />
               </div>
             </div>
-            <Button size="lg" className="text-white min-w-64">
-              Create New Project
-            </Button>
+            {!isSubmitting ? (
+              <Button size="lg" className="text-white min-w-64">
+                Create New Project
+              </Button>
+            ) : (
+              <Button disabled size="lg" className="text-white min-w-64">
+                <Spinner className="mr-2" /> Creating Project
+              </Button>
+            )}
           </form>
         </div>
 
