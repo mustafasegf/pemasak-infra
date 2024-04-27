@@ -1,4 +1,4 @@
-import { useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { FC, ReactElement, ReactNode, createContext, useContext, useEffect, useState } from "react";
 
 export const AuthContext = createContext({

@@ -42,9 +42,7 @@ const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
 }
 
 function Index() {
-  const { data: projects, error, isLoading } = useSWR(`${import.meta.env.VITE_API_URL}/dashboard/project/`, apiFetcher)
-
-  console.log(projects)
+  const { data: projects, isLoading } = useSWR(`${import.meta.env.VITE_API_URL}/dashboard/project/`, apiFetcher)
 
   return (
     <div className="w-full relative min-h-screen">
