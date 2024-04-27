@@ -53,9 +53,9 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
         </div>
       </div>
       <hr className="border-slate-600" />
-      <div className="flex flex-col items-center justify-start px-6 py-4 space-y-2 max-h-64 overflow-y-auto">
+      <div className="flex flex-col items-center justify-start px-4 py-4 space-y-2 max-h-64 overflow-y-auto">
         <Link
-          className="flex items-center space-x-2 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
+          className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
           href="/web"
           to="/"
           activeProps={{
@@ -65,22 +65,22 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
           <HomeIcon className="w-4 h-4" />
           <span className="font-semibold text-sm">Home</span>
         </Link>
-        {projects?.length === 0 ? (
+        {projects?.data?.length === 0 ? (
           <Link
-            className="flex items-center space-x-2 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
+            className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
             href="/web/create-project"
             to="/create-project"
             activeProps={{
               className: "bg-slate-700"
             }}
           >
-            <ChevronRightIcon className="w-4 h-4" />
-            <span className="font-semibold text-sm">Getting Started</span>
+            <PlusIcon className="w-4 h-4" />
+            <span className="font-semibold text-sm">Create Your First Project</span>
           </Link>
         ) : (
           projects?.data?.map((item: any) => (
             <Link
-              className="flex items-center space-x-2 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
+              className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
               href={`/web/project/${item.owner_name}/${item.name}`}
               to={`/project/$owner/$project`}
               params={{
@@ -98,9 +98,9 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
         )}
       </div>
       <hr className="border-slate-600" />
-      <div className="flex flex-col items-center justify-center px-6 py-4">
-        <Link href="/create-project" to="/create-project">
-          <Button variant="outline" size="lg" className="w-full space-x-2 border-primary text-primary hover:bg-primary">
+      <div className="flex flex-col items-center justify-center px-4 py-4">
+        <Link href="/create-project" to="/create-project" className="w-full">
+          <Button variant="outline" size="lg" className="w-full space-x-4 border-primary text-primary hover:bg-primary">
             <PlusIcon className="mr-2 h-4 w-4" /> Create New Project
           </Button>
         </Link>

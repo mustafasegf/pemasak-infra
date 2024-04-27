@@ -52,23 +52,25 @@ function Index() {
         </div>
       </div>
 
-      <div className="h-full mt-24 p-8 space-y-8">
-        <h1 className="font-semibold text-2xl">Project List</h1>
+      <div className="h-full mt-24 p-8 space-y-8 overflow-y-auto pb-32">
         {isLoading || !projects?.data?.length ? <NoProject /> : (
-          <div className="grid grid-cols-2 gap-8">
-            {projects?.data?.map((item: any) => (
-              <div className="bg-slate-900 border p-8 rounded-lg space-y-4 border-slate-500 hover:border-blue-400 transition-all cursor-pointer">
-                <div className="space-y-1">
-                  <h1 className="text-lg font-semibold">{item.owner_name}/{item.name}</h1>
-                  <h2 className="text-sm text-blue-400">{item.id}</h2>
-                </div>
+          <>
+            <h1 className="font-semibold text-2xl">Project List</h1>
+            <div className="grid grid-cols-2 gap-8">
+              {projects?.data?.map((item: any) => (
+                <div className="bg-slate-900 border p-8 rounded-lg space-y-4 border-slate-500 hover:border-blue-400 transition-all cursor-pointer">
+                  <div className="space-y-1">
+                    <h1 className="text-lg font-semibold">{item.owner_name}/{item.name}</h1>
+                    <h2 className="text-sm text-blue-400">{item.id}</h2>
+                  </div>
 
-                <Badge className="bg-slate-700 hover:bg-slate-700 text-white rounded-full font-medium">
-                  Status: Empty
-                </Badge>
-              </div>
-            ))}
-          </div>
+                  <Badge className="bg-slate-700 hover:bg-slate-700 text-white rounded-full font-medium">
+                    Status: Empty
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

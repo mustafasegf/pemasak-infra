@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
+import { useSWRConfig } from 'swr';
 
 export const Route = createLazyFileRoute('/create-project')({
   component: NewProject,
@@ -21,6 +22,8 @@ export const Route = createLazyFileRoute('/create-project')({
 
 function NewProject() {
   const auth = useAuth()
+  const { mutate } = useSWRConfig()
+
   const { handleSubmit, register, control } = useForm()
 
   const [response, setResponse] = useState<{
@@ -57,6 +60,7 @@ function NewProject() {
 
     setResponse(data)
     setError(undefined)
+    mutate(`${import.meta.env.VITE_API_URL}/dashboard/project/`)
   }
 
   return (
