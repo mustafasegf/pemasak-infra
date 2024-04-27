@@ -1,4 +1,4 @@
-import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
 import { FC, ReactElement, ReactNode, createContext, useContext, useEffect, useState } from "react";
 
 export const AuthContext = createContext({
@@ -9,7 +9,7 @@ export const AuthContext = createContext({
     },
     authenticated: false,
     handlers: {
-        login: (_username: string, _password: string) => {},
+        login: (_username: string, _password: string) => { },
         refreshAuthState: () => { }
     }
 })
@@ -45,6 +45,10 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
     const navigate = useNavigate()
     const router = useRouter()
 
+    const search = useSearch({
+        strict: false,
+    })
+
     const { location } = router.state
 
     async function login(username: string, password: string) {
@@ -65,7 +69,10 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
             throw data
         }
         await refreshAuthState()
-        navigate({ from: location.pathname, to: "/" })
+
+        // I know this is terrible, I hate React, please make setState awaitable holy %@!#
+        // @ts-ignore
+        setTimeout(() => navigate({ from: location.pathname, to: search?.redirect || "/" }), 50)
     }
 
     async function refreshAuthState() {
@@ -80,7 +87,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
 
                     return res.json()
                 })
-            
+
             setAuth({
                 ...auth,
                 user: {
@@ -115,12 +122,12 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
     useEffect(() => {
         console.log(AUTH_ROUTES.some((route) => route === location.pathname))
         if (!auth.initializing && !auth.authenticated && !AUTH_ROUTES.some((route) => route === location.pathname)) {
-            router.history.replace("/web/login")
+            router.history.replace(`/web/login?redirect=${location.href}`)
         }
     }, [auth, location.pathname])
 
     return (
-        <AuthContext.Provider 
+        <AuthContext.Provider
             value={{
                 ...auth,
                 handlers: {
@@ -129,7 +136,12 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
                 }
             }}
         >
-            {!auth.initializing ? children : <></>}
+            {
+                // TODO: implement proper loader
+                !auth.initializing ? children : (
+                    <div className="w-screen h-screen circle-bg"></div>
+                )
+            }
         </AuthContext.Provider>
     )
 }
