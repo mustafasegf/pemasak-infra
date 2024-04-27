@@ -1,4 +1,4 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { FC, ReactElement, ReactNode, createContext, useContext, useEffect, useState } from "react";
 
 export const AuthContext = createContext({
@@ -22,6 +22,11 @@ export function useAuth() {
     return useContext(AuthContext)
 }
 
+const AUTH_ROUTES = [
+    "/web/login",
+    "/web/register"
+]
+
 export default function AuthProvider({ children }: AuthProviderProps): ReactElement<FC> {
     const [auth, setAuth] = useState({
         user: {
@@ -30,6 +35,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
             name: "",
         },
         authenticated: false,
+        initializing: true,
         handlers: {
             login: (_username: string, _password: string) => { },
             refreshAuthState: () => { }
@@ -37,7 +43,9 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
     })
 
     const navigate = useNavigate()
-    const router = useRouterState()
+    const router = useRouter()
+
+    const { location } = router.state
 
     async function login(username: string, password: string) {
         const request = await fetch(`${import.meta.env.VITE_API_URL}/login`, {
@@ -57,7 +65,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
             throw data
         }
         await refreshAuthState()
-        navigate({ from: router.location.pathname, to: "/" })
+        navigate({ from: location.pathname, to: "/" })
     }
 
     async function refreshAuthState() {
@@ -81,6 +89,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
                     name: data.name,
                 },
                 authenticated: true,
+                initializing: false,
             })
         } catch (e) {
             setAuth({
@@ -91,6 +100,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
                     name: "",
                 },
                 authenticated: false,
+                initializing: false,
             })
         }
     }
@@ -102,6 +112,13 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
         return () => clearInterval(interval)
     }, [])
 
+    useEffect(() => {
+        console.log(AUTH_ROUTES.some((route) => route === location.pathname))
+        if (!auth.initializing && !auth.authenticated && !AUTH_ROUTES.some((route) => route === location.pathname)) {
+            router.history.replace("/web/login")
+        }
+    }, [auth, location.pathname])
+
     return (
         <AuthContext.Provider 
             value={{
@@ -112,7 +129,7 @@ export default function AuthProvider({ children }: AuthProviderProps): ReactElem
                 }
             }}
         >
-            {children}
+            {!auth.initializing ? children : <></>}
         </AuthContext.Provider>
     )
 }
