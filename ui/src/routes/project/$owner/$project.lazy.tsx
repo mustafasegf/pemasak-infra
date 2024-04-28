@@ -31,11 +31,14 @@ function ProjectDashboard() {
                     </div>
                     <div className="flex bg-slate-800 p-2 max-w-min rounded-lg gap-2">
                         <Link 
-                            to="/project/$owner/$project/"
+                            to="/project/$owner/$project"
                             params={{owner, project}}
                             className="flex px-4 py-2 rounded-lg items-center"
                             activeProps={{
                                 className: "bg-slate-900"
+                            }}
+                            activeOptions={{
+                                exact: true,
                             }}
                         >
                             <svg className="mr-1.5" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
