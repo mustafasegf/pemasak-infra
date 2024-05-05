@@ -9,8 +9,6 @@ function ProjectDashboard() {
     // @ts-ignore
     const { owner, project } = useParams({ strict: false })
 
-    console.log(owner, project)
-
     return (
         <div className="w-full relative min-h-screen">
             <div className="w-full border-b border-slate-600 bg-[#020618] h-24 flex items-center absolute top-0">
@@ -19,8 +17,8 @@ function ProjectDashboard() {
                 </div>
             </div>
 
-            <div className="h-full mt-24 p-8 space-y-8 overflow-y-auto pb-32">
-                <div className="space-y-2">
+            <div className="h-full mt-24 space-y-8 overflow-y-auto pb-32">
+                <div className="space-y-2 border-b border-slate-600 p-8">
                     <div className="flex items-center space-x-4">
                         <Badge className="bg-slate-700 hover:bg-slate-700 text-white text-sm rounded-full font-medium">
                             Status: Empty
@@ -33,7 +31,7 @@ function ProjectDashboard() {
                         <Link 
                             to="/project/$owner/$project"
                             params={{owner, project}}
-                            className="flex px-4 py-2 rounded-lg items-center"
+                            className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
                             }}
@@ -50,7 +48,7 @@ function ProjectDashboard() {
                         <Link 
                             to="/project/$owner/$project/terminal" 
                             params={{owner, project}}
-                            className="flex px-4 py-2 rounded-lg items-center"
+                            className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
                             }}
@@ -62,10 +60,10 @@ function ProjectDashboard() {
                             </svg>
                             Terminal
                         </Link>
-                        <Link 
+                        {/* <Link 
                             to="/project/$owner/$project/logs" 
                             params={{owner, project}}
-                            className="flex px-4 py-2 rounded-lg items-center"
+                            className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
                             }}
@@ -78,11 +76,11 @@ function ProjectDashboard() {
                                 <path d="M18 10H16V12H18V10Z" fill="white" />
                             </svg>
                             Logs
-                        </Link>
+                        </Link> */}
                         <Link 
                             to="/project/$owner/$project/settings" 
                             params={{owner, project}}
-                            className="flex px-4 py-2 rounded-lg items-center"
+                            className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
                             }}
@@ -94,7 +92,9 @@ function ProjectDashboard() {
                         </Link>
                     </div>
                 </div>
-                <Outlet />
+                <div className="px-8">
+                    <Outlet />
+                </div>
             </div>
         </div>
     )

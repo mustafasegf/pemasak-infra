@@ -36,6 +36,9 @@ const ProjectOwnerProjectSettingsLazyImport = createFileRoute(
 const ProjectOwnerProjectLogsLazyImport = createFileRoute(
   '/project/$owner/$project/logs',
 )()
+const ProjectOwnerProjectBuildBuildIdLazyImport = createFileRoute(
+  '/project/$owner/$project/build/$buildId',
+)()
 
 // Create/Update Routes
 
@@ -109,6 +112,16 @@ const ProjectOwnerProjectLogsLazyRoute =
     import('./routes/project/$owner/$project/logs.lazy').then((d) => d.Route),
   )
 
+const ProjectOwnerProjectBuildBuildIdLazyRoute =
+  ProjectOwnerProjectBuildBuildIdLazyImport.update({
+    path: '/build/$buildId',
+    getParentRoute: () => ProjectOwnerProjectLazyRoute,
+  } as any).lazy(() =>
+    import('./routes/project/$owner/$project/build.$buildId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+
 // Populate the FileRoutesByPath interface
 
 declare module '@tanstack/react-router' {
@@ -153,6 +166,10 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectOwnerProjectIndexLazyImport
       parentRoute: typeof ProjectOwnerProjectLazyImport
     }
+    '/project/$owner/$project/build/$buildId': {
+      preLoaderRoute: typeof ProjectOwnerProjectBuildBuildIdLazyImport
+      parentRoute: typeof ProjectOwnerProjectLazyImport
+    }
   }
 }
 
@@ -169,6 +186,7 @@ export const routeTree = rootRoute.addChildren([
     ProjectOwnerProjectSettingsLazyRoute,
     ProjectOwnerProjectTerminalLazyRoute,
     ProjectOwnerProjectIndexLazyRoute,
+    ProjectOwnerProjectBuildBuildIdLazyRoute,
   ]),
 ])
 
