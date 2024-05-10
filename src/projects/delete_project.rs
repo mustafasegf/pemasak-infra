@@ -9,8 +9,20 @@ use bollard::network::InspectNetworkOptions;
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
+use serde::Serialize;
 
 use crate::startup::AppState;
+
+#[derive(Serialize)]
+struct DeleteProjectSuccessResponse {
+    message: String
+}
+
+#[derive(Serialize)]
+struct DeleteProjectErrorResponse {
+    message: String,
+    details: Vec<String>
+}
 
 #[tracing::instrument(skip(pool, base))]
 pub async fn post(
@@ -19,42 +31,23 @@ pub async fn post(
 ) -> Response<Body> {
     fn to_response(status: HashMap<&'static str, &'static str>) -> Response<Body> {
         let success = status.iter().all(|(_, v)| *v == "successfully deleted");
-        let el = match success {
-            true => {
-                view! {
-                    <div>
-                        <h1> "successfully deleted repo" </h1>
-                    </div>
+        let json = match success {
+            true => serde_json::to_string(
+                &DeleteProjectSuccessResponse {
+                    message: "Successfully deleted project".to_string(),
                 }
-            }
-            false => {
-                view! {
-                   <div>
-                   <h1> "some action failed" </h1>
-                    {status.into_iter().map(|(k, v)|{ view!{
-                        <h1> {k.to_string()} {v.to_string()} </h1>
-                    }}).collect::<Vec<_>>() }
-                   </div>
+            ),
+            false => serde_json::to_string(
+                &DeleteProjectErrorResponse {
+                    message: "Failed to delete project".to_string(),
+                    details: status.into_iter().map(|(k, v)|{ format!("{}: {}", k.to_string(), v.to_string()) }).collect::<Vec<_>>()
                 }
-            }
-        };
+            )
+        }.unwrap();
 
-        let html = render_to_string(move || {
-            view! {
-                {el}
-                <script>
-                r#"
-                setTimeout(function() {
-                    window.location.href = '/dashboard';
-                }, 5000);  // 3000 milliseconds = 3 seconds
-            "#
-                </script>
-            }
-        })
-        .into_owned();
         Response::builder()
             .status(StatusCode::OK)
-            .body(Body::from(html))
+            .body(Body::from(json))
             .unwrap()
     }
 

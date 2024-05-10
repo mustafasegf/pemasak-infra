@@ -5,6 +5,18 @@ use bollard::container::{StopContainerOptions, StartContainerOptions};
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct DeleteVolumeSuccessResponse {
+    message: String
+}
+
+#[derive(Serialize)]
+struct DeleteVolumeErrorResponse {
+    message: String,
+    details: Vec<String>
+}
 
 #[tracing::instrument]
 pub async fn post(Path((owner, project)): Path<(String, String)>) -> Response<Body> {
@@ -69,16 +81,14 @@ pub async fn post(Path((owner, project)): Path<(String, String)>) -> Response<Bo
         }
     }
 
-    let html = render_to_string(move || {
-        view! {
-            <div>
-                <h1> {status} </h1>
-            </div>
+    let json = serde_json::to_string(
+        &DeleteVolumeSuccessResponse {
+            message: status.to_string()
         }
-    })
-    .into_owned();
+    ).unwrap();
+
     Response::builder()
         .status(StatusCode::OK)
-        .body(Body::from(html))
+        .body(Body::from(json))
         .unwrap()
 }
