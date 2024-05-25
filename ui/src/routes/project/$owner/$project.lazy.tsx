@@ -1,13 +1,30 @@
 import { Badge } from "@/components/ui/badge";
 import { Link, Outlet, createLazyFileRoute, useParams } from "@tanstack/react-router";
+import useSWR from "swr";
 
 export const Route = createLazyFileRoute('/project/$owner/$project')({
     component: ProjectDashboard,
 })
 
+const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
+    return fetch(
+        input,
+        {
+            ...options,
+            redirect: "follow",
+            credentials: "include",
+            headers: {
+                "Content-Type": "application/json"
+            },
+        }
+    ).then(res => res.json())
+}
+
 function ProjectDashboard() {
     // @ts-ignore
     const { owner, project } = useParams({ strict: false })
+
+    const { data: builds, isLoading } = useSWR(`${import.meta.env.VITE_API_URL}/project/${owner}/${project}/builds/`, apiFetcher)
 
     return (
         <div className="w-full relative min-h-screen">
@@ -20,17 +37,29 @@ function ProjectDashboard() {
             <div className="h-full mt-24 space-y-8 overflow-y-auto pb-32">
                 <div className="space-y-2 border-b border-slate-600 p-8">
                     <div className="flex items-center space-x-4">
-                        <Badge className="bg-slate-700 hover:bg-slate-700 text-white text-sm rounded-full font-medium">
-                            Status: Empty
-                        </Badge>
+                        {isLoading ? (
+                            <Badge className="bg-slate-700 hover:bg-slate-700 text-white text-sm rounded-full font-medium animate-pulse">
+                                Loading Status...
+                            </Badge>
+                        ) : (
+                            builds?.data?.filter((build: any) => build.status === "SUCCESSFUL").length > 0 ? (
+                                <Badge className="bg-green-700 hover:bg-green-700 text-white text-sm rounded-full font-medium">
+                                    Status: Running
+                                </Badge>
+                            ) : (
+                                <Badge className="bg-slate-700 hover:bg-slate-700 text-white text-sm rounded-full font-medium">
+                                    Status: Empty
+                                </Badge>
+                            )
+                        )}
                         <h1 className="text-2xl font-semibold">
                             {owner}/{project}
                         </h1>
                     </div>
                     <div className="flex bg-slate-800 p-2 max-w-min rounded-lg gap-2">
-                        <Link 
+                        <Link
                             to="/project/$owner/$project"
-                            params={{owner, project}}
+                            params={{ owner, project }}
                             className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
@@ -45,9 +74,9 @@ function ProjectDashboard() {
                             </svg>
                             Builds
                         </Link>
-                        <Link 
-                            to="/project/$owner/$project/terminal" 
-                            params={{owner, project}}
+                        <Link
+                            to="/project/$owner/$project/terminal"
+                            params={{ owner, project }}
                             className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
@@ -77,9 +106,9 @@ function ProjectDashboard() {
                             </svg>
                             Logs
                         </Link> */}
-                        <Link 
-                            to="/project/$owner/$project/settings" 
-                            params={{owner, project}}
+                        <Link
+                            to="/project/$owner/$project/settings"
+                            params={{ owner, project }}
                             className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
                             activeProps={{
                                 className: "bg-slate-900"
