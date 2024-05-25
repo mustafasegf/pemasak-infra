@@ -2,13 +2,11 @@ use std::fmt;
 
 use axum::extract::{State, Path};
 use axum::response::Response;
+use chrono::{DateTime, Utc};
 use hyper::{Body, StatusCode};
-use leptos::ssr::render_to_string;
-use leptos::{view, IntoView, IntoAttribute};
 use serde::{Serialize, Deserialize};
+use uuid::Uuid;
 
-use crate::components::Base;
-use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
@@ -29,6 +27,24 @@ impl fmt::Display for BuildState {
             BuildState::FAILED => write!(f, "Failed"),
         }
     }
+}
+
+#[derive(Serialize, Debug)]
+struct ErrorResponse {
+    message: String,
+}
+
+#[derive(Serialize, Debug)]
+struct Build {
+    id: Uuid,
+    status: BuildState,
+    created_at: DateTime<Utc>,
+    finished_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, Debug)]
+struct ProjectBuildListResponse {
+    data: Vec<Build>
 }
 
 #[tracing::instrument(skip(auth, pool))]
@@ -56,35 +72,30 @@ pub async fn get(
     {
         Ok(Some(record)) => record,
         Ok(None) => {
-            let html = render_to_string(move || {
-                view! {
-                    <Base is_logged_in={true}>
-                        <h1> Project does not exist </h1>
-                    </Base>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Project does not exist".to_string(),
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
         Err(err) => {
             tracing::error!(?err, "Can't get projects: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> "Failed to query database " {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database: {}", err.to_string()),
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
 
-    let builds = match sqlx::query!(
+    let build_records = match sqlx::query!(
         r#"SELECT id, project_id, status AS "status: BuildState", created_at, finished_at 
         FROM builds WHERE project_id = $1
         ORDER BY created_at DESC"#,
@@ -95,121 +106,32 @@ pub async fn get(
     {
         Ok(records) => records,
         Err(err) => {
-            let html = render_to_string(move || {
-                view! {
-                    <h1> "Failed to query database " {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database: {}", err.to_string()),
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }, 
     };
 
-    let html = render_to_string(move || {
-        view! {
-            <Base is_logged_in={true}>
-              <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
-
-              <h2 class="text-xl">
-                Builds
-              </h2>
-              <div class="flex flex-col gap-4 w-full mt-4">
-                {
-                    match builds.len() > 0 {
-                        true => {
-                            builds.into_iter().enumerate().map(|(index, record)| { view!{
-                                <>
-                                    <a hx-boost="true" href={format!("/{}/{}/builds/{}", owner, project, record.id.to_string())} class="bg-neutral/40 backdrop-blur-sm text-info py-4 px-8 cursor-pointer w-full rounded-lg transition-all outline outline-transparent hover:outline-blue-500">
-                                        {
-                                            let id = record.id.to_string();
-                                            let status = record.status.to_string();
-                                            let created_at = record.created_at;
-                                            view!{
-                                                <div class="text-sm">
-                                                    <h2 class="font-bold text-white">
-                                                        <span>{id}</span>
-                                                        {
-                                                            let latest_build = match index == 0 {
-                                                                true => " (LATEST BUILD)",
-                                                                false => ""
-                                                            };
-                
-                                                            view!{
-                                                                <span class="text-info">{latest_build}</span>
-                                                            }
-                                                        }
-                                                    </h2>
-                                                    <p class="text-sm text-neutral-content">{"Status: "}{status}</p>
-                                                    <p class="text-sm text-neutral-content">{"Started at: "}{created_at.to_rfc2822()}</p>
-                                                </div>
-                                            }
-                                        }
-                                    </a>
-                                </>
-                            }}).collect::<Vec<_>>()
-                        },
-                        false => {
-                            let protocol = match secure {
-                                true => "https",
-                                false => "http"
-                            };
-                            
-                            vec!(
-                                view! {
-                                    <>
-                                        <div>
-                                            <p class="mb-4">You have not pushed a build to your project, to push an existing project, execute the following command in your project</p>
-                                            <div class="p-4 mb-4 bg-neutral/40 backdrop-blur-sm mockup-code" id="code">
-                                                <pre>
-                                                    <code>
-                                                        "git remote add pws" {format!(" {protocol}://{domain}/{owner}/{project}")}
-                                                    </code>
-                                                </pre>
-                                                <pre>
-                                                    <code>
-                                                        "git branch -M master" 
-                                                    </code>
-                                                </pre>
-                                                <pre>
-                                                    <code>
-                                                        {"git push pws master"}
-                                                    </code>
-                                                </pre>
-                                            </div>
-                                            <button
-                                                class="btn btn-outline btn-secondary mb-4"
-                                                onclick="
-                                                let lb = '\\n'
-                                                if(navigator.userAgent.indexOf('Windows') != -1) {{
-                                                lb = '\\r\\n'
-                                                }}
-                                
-                                                let text = document.getElementById('code').innerText.replaceAll('\\n', lb)
-                                                if ('clipboard' in window.navigator) {{
-                                                    navigator.clipboard.writeText(text)
-                                                }}
-                                            "
-                                            >
-                                            Copy to clipboard
-                                            </button>
-                                        </div>
-                                    </>
-                                }
-                            )
-                        }
-                    }
-                }
-              </div>
-            </Base>
+    let builds = build_records.into_iter().map(|record|{ 
+        Build {
+            id: record.id,
+            status: record.status,
+            created_at: record.created_at,
+            finished_at: record.finished_at,
         }
-    })
-    .into_owned();
+    }).collect::<Vec<_>>();
+
+    let json = serde_json::to_string(&ProjectBuildListResponse {
+        data: builds
+    }).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
-        .body(Body::from(html))
+        .body(Body::from(json))
         .unwrap()
 }
