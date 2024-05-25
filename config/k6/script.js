@@ -1,26 +1,23 @@
-// import necessary module
-import * as YAML from "k6/x/yaml";
 import http from "k6/http";
 import exec from "k6/x/exec";
 import read from "k6/x/read";
 import dotenv from "k6/x/dotenv";
 
-// const config = YAML.parse(open('../../configuration.yml'));
-// let domain = config.application.domain;
+export let options = {
+  setupTimeout: "60m",
+};
 
-const csvData = open("./data.csv").trim();
+const csvData = open("./data-all.csv").trim();
 const csvArr = csvData
   .split(/\r?\n/)
   .map((line) => line.split(","))
-  .slice(0, 3);
-const csv = csvArr.map((line) => ({
+  // .slice(0, 1);
+let csv = csvArr.map((line) => ({
   name: line[1].trim().replaceAll(" ", "").toLowerCase(),
   github: "https://" + line[2].trim(),
 }));
 
 const { username, password, domain } = dotenv.parse(open("./.env"));
-
-let cookieString = "";
 
 export function setup() {
   console.log({ domain });
@@ -48,7 +45,7 @@ export function setup() {
   }
 
   const cookies = loginRes.cookies;
-  cookieString = Object.keys(cookies)
+  const cookieString = Object.keys(cookies)
     .map((name) => {
       return `${name}=${cookies[name][0].value}`;
     })
@@ -68,9 +65,16 @@ export function setup() {
       console.log({ error });
       // clone github repo to clone folder
       console.log("cloning repo", { name, github });
-      exec.command("git", ["clone", github, name], {
-        dir: "clone",
-      });
+
+      try {
+        exec.command("git", ["clone", github, name], {
+          dir: "clone",
+        });
+      } catch (error) {
+        console.log("error cloning repo", github, { error });
+        csv = csv.filter((item) => item.name !== name);
+        continue;
+      }
 
       // change main branch to master
       console.log("changing main branch");
@@ -104,7 +108,7 @@ export function setup() {
 }
 
 export default function() {
-  const promises = csv.map(
+  const buildPromises = csv.map(
     ({ name, github }) =>
       new Promise((resolve, reject) => {
         // push to pws
@@ -113,14 +117,12 @@ export default function() {
           dir: "clone/" + name,
         });
 
+        // check if project is deployed
         resolve();
-        // console.log({ execRes });
-
-        // need a way to check if deploy is successful
       }),
   );
 
-  Promise.allSettled(promises)
+  Promise.allSettled(buildPromises)
     .then((results) => {
       console.log("all project created");
     })
@@ -130,25 +132,57 @@ export default function() {
 }
 
 export function teardown() {
+  // login and get cookie
+  const loginRes = http.post(
+    domain + "/api/login",
+    JSON.stringify({
+      username,
+      password,
+    }),
+    { headers: { "Content-Type": "application/json" } },
+  );
+
+  console.log({
+    loginStatus: loginRes.status,
+  });
+
+  if (loginRes.status !== 302) {
+    console.log("login failed");
+    return;
+  }
+
+  const cookies = loginRes.cookies;
+  const cookieString = Object.keys(cookies)
+    .map((name) => {
+      return `${name}=${cookies[name][0].value}`;
+    })
+    .join("; ");
   const promisesDelete = csv.map(
     ({ name, github }) =>
       new Promise((resolve, reject) => {
         // delete project
+        console.log({
+          domain: `${domain}/api/project/${username}/${name}/delete`,
+        });
+
         const deleteRes = http.post(
           `${domain}/api/project/${username}/${name}/delete`,
-          {},
+          null,
           {
             headers: {
               Cookie: cookieString,
+              "Content-Type": "application/json",
             },
           },
         );
-
-        if (deleteRes.status === 200) {
-          resolve();
+        if (deleteRes.status !== 200) {
+          console.log(`error deleting project ${name}`);
+          reject();
+          return;
         }
 
-        reject();
+        console.log(`project ${name} deleted`);
+        resolve();
       }),
   );
   Promise.allSettled(promisesDelete)
