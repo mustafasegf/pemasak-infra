@@ -20,7 +20,9 @@ const csv = csvArr.map((line) => ({
 
 const { username, password, domain } = dotenv.parse(open("./.env"));
 
-export default async function() {
+let cookieString = "";
+
+export function setup() {
   console.log({ domain });
   console.log({ pwd: exec.command("pwd") });
 
@@ -46,14 +48,13 @@ export default async function() {
   }
 
   const cookies = loginRes.cookies;
-  const cookieString = Object.keys(cookies)
+  cookieString = Object.keys(cookies)
     .map((name) => {
       return `${name}=${cookies[name][0].value}`;
     })
     .join("; ");
 
   console.log({ cookieString });
-
   // console.log({ loginRes });
 
   for (const { name, github } of csv) {
@@ -99,26 +100,10 @@ export default async function() {
         },
       },
     );
-
-    // // push to pws
-    // console.log("pushing to pws");
-    // const execRes = exec.command("git", ["push", "-u", "pws", "master"], {
-    //   dir: "clone/" + name,
-    // });
-    // console.log({ execRes });
-
-    // delete project
-    // http.post(
-    //   `${domain}/api/project/${username}/${name}/delete`,
-    //   {},
-    //   {
-    //     headers: {
-    //       Cookie: cookieString,
-    //     },
-    //   },
-    // );
   }
+}
 
+export default function() {
   const promises = csv.map(
     ({ name, github }) =>
       new Promise((resolve, reject) => {
@@ -137,12 +122,14 @@ export default async function() {
 
   Promise.allSettled(promises)
     .then((results) => {
-      console.log("all done");
+      console.log("all project created");
     })
     .catch((error) => {
-      console.log("error happened", { error });
+      console.log("error happened when creating project", { error });
     });
+}
 
+export function teardown() {
   const promisesDelete = csv.map(
     ({ name, github }) =>
       new Promise((resolve, reject) => {
@@ -164,4 +151,11 @@ export default async function() {
         reject();
       }),
   );
+  Promise.allSettled(promisesDelete)
+    .then((results) => {
+      console.log("all project deleted");
+    })
+    .catch((error) => {
+      console.log("tear down error", { error });
+    });
 }
