@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT projects.id\n           FROM projects\n           JOIN project_owners ON projects.owner_id = project_owners.id\n           WHERE project_owners.name = $1\n           AND projects.name = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ff2a30e68bad72c4708147c25dfb99d8c5d0887ae7e7fd6d6daef3ff65321557"
+}

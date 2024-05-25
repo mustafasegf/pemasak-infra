@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT api_token.token\n                    FROM project_owners\n                    JOIN projects ON project_owners.id = projects.owner_id\n                    JOIN api_token ON projects.id = api_token.project_id\n                    WHERE project_owners.name = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c4edc5e86f41534ef98837a7187ca5e810a5e51f132adf0f2be964280d96e22e"
+}
