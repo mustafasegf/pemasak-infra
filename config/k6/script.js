@@ -2,16 +2,25 @@ import http from "k6/http";
 import exec from "k6/x/exec";
 import read from "k6/x/read";
 import dotenv from "k6/x/dotenv";
+import { sleep } from "k6";
 
 export let options = {
   setupTimeout: "60m",
+  scenarios: {
+    build: {
+      executor: "shared-iterations",
+      vus: 1,
+      iterations: 1,
+      maxDuration: "60m",
+    },
+  },
 };
 
 const csvData = open("./data-all.csv").trim();
 const csvArr = csvData
   .split(/\r?\n/)
   .map((line) => line.split(","))
-  // .slice(0, 1);
+  .slice(0, 50);
 let csv = csvArr.map((line) => ({
   name: line[1].trim().replaceAll(" ", "").toLowerCase(),
   github: "https://" + line[2].trim(),
@@ -107,9 +116,37 @@ export function setup() {
   }
 }
 
-export default function() {
-  const buildPromises = csv.map(
-    ({ name, github }) =>
+export default async function() {
+  // login and get cookie
+  const loginRes = http.post(
+    domain + "/api/login",
+    JSON.stringify({
+      username,
+      password,
+    }),
+    { headers: { "Content-Type": "application/json" } },
+  );
+
+  console.log({
+    loginStatus: loginRes.status,
+  });
+
+  if (loginRes.status !== 302) {
+    console.log("login failed");
+    return;
+  }
+
+  const cookies = loginRes.cookies;
+  const cookieString = Object.keys(cookies)
+    .map((name) => {
+      return `${name}=${cookies[name][0].value}`;
+    })
+    .join("; ");
+
+  let buildPromises = [];
+
+  for (const { name, github } of csv) {
+    buildPromises.push(
       new Promise((resolve, reject) => {
         // push to pws
         console.log(`pushing project ${name} to pws`);
@@ -118,9 +155,42 @@ export default function() {
         });
 
         // check if project is deployed
-        resolve();
+        while (true) {
+          sleep(1);
+          const projectRes = http.get(
+            `${domain}/api/project/${username}/${name}/builds`,
+            {
+              headers: {
+                Cookie: cookieString,
+              },
+            },
+          );
+
+          if (projectRes.status !== 200) {
+            console.log(`error getting project ${name}`);
+            reject();
+            return;
+          }
+
+          const projectData = JSON.parse(projectRes.body);
+          const project = projectData.data[0];
+          if (project.status === "SUCCESSFUL") {
+            console.log(`project ${name} deployed`);
+            resolve();
+            return;
+          }
+
+          if (project.status === "FAILED") {
+            console.log(`project ${name} failed to deploy`);
+            reject();
+            return;
+          }
+        }
       }),
-  );
+    );
+  }
+
+  console.log({ length: buildPromises.length });
 
   Promise.allSettled(buildPromises)
     .then((results) => {
@@ -157,8 +227,11 @@ export function teardown() {
       return `${name}=${cookies[name][0].value}`;
     })
     .join("; ");
-  const promisesDelete = csv.map(
-    ({ name, github }) =>
+
+  let promisesDelete = [];
+
+  for (const { name, github } of csv) {
+    promisesDelete.push(
       new Promise((resolve, reject) => {
         // delete project
         console.log({
@@ -184,7 +257,9 @@ export function teardown() {
         console.log(`project ${name} deleted`);
         resolve();
       }),
-  );
+    );
+  }
+
   Promise.allSettled(promisesDelete)
     .then((results) => {
       console.log("all project deleted");
