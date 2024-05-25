@@ -2,14 +2,11 @@ use std::fmt;
 
 use axum::extract::{State, Path};
 use axum::response::Response;
+use chrono::{DateTime, Utc};
 use hyper::{Body, StatusCode};
-use leptos::ssr::render_to_string;
-use leptos::{view, IntoView};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-use crate::components::Base;
-use crate::projects::components::ProjectHeader;
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
@@ -30,6 +27,20 @@ impl fmt::Display for BuildState {
             BuildState::FAILED => write!(f, "Failed"),
         }
     }
+}
+
+#[derive(Serialize, Debug)]
+struct BuildDetailResponse {
+    id: Uuid,
+    status: BuildState,
+    created_at: DateTime<Utc>,
+    finished_at: Option<DateTime<Utc>>,
+    logs: String
+}
+
+#[derive(Serialize, Debug)]
+struct ErrorResponse {
+    message: String,
 }
 
 #[tracing::instrument(skip(auth, pool))]
@@ -57,30 +68,25 @@ pub async fn get(
     {
         Ok(Some(record)) => record,
         Ok(None) => {
-            let html = render_to_string(move || {
-                view! {
-                    <Base is_logged_in={true}>
-                        <h1> Project does not exist </h1>
-                    </Base>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Project does not exist".to_string()
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
         Err(err) => {
             tracing::error!(?err, "Can't get projects: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> "Failed to query database " {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database: {}", err.to_string())
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }
     };
@@ -96,39 +102,27 @@ pub async fn get(
     {
         Ok(record) => record,
         Err(err) => {
-            let html = render_to_string(move || {
-                view! {
-                    <h1> "Failed to query database " {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database: {}", err.to_string())
+            }).unwrap();
+
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(html))
+                .body(Body::from(json))
                 .unwrap();
         }, 
     };
 
-    let html = render_to_string(move || {
-        view! {
-            <Base is_logged_in={true}>
-              <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
-
-              <h2 class="text-xl">
-                "Build Log - ID: "{build.id.to_string()}
-              </h2>
-              <div class="w-full mt-4 px-1 mockup-code bg-neutral/40 backdrop-blur-sm">
-                {build.log.split("\n").map(|line| { view!{
-                    <pre><code>{line.to_string()}</code></pre>
-                }}).collect::<Vec<_>>()}
-              </div>
-            </Base>
-        }
-    })
-    .into_owned();
+    let json = serde_json::to_string(&BuildDetailResponse {
+        id: build.id,
+        status: build.status,
+        created_at: build.created_at,
+        finished_at: build.finished_at,
+        logs: build.log,
+    }).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
-        .body(Body::from(html))
+        .body(Body::from(json))
         .unwrap()
 }
