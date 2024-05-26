@@ -1,32 +1,36 @@
 import http from "k6/http";
 import exec from "k6/x/exec";
 import read from "k6/x/read";
-import dotenv from "k6/x/dotenv";
 import { sleep } from "k6";
-
-export let options = {
-  setupTimeout: "60m",
-  scenarios: {
-    build: {
-      executor: "shared-iterations",
-      vus: 1,
-      iterations: 1,
-      maxDuration: "60m",
-    },
-  },
-};
+import execution from "k6/execution";
 
 const csvData = open("./data-all.csv").trim();
 const csvArr = csvData
   .split(/\r?\n/)
   .map((line) => line.split(","))
-  .slice(0, 50);
 let csv = csvArr.map((line) => ({
   name: line[1].trim().replaceAll(" ", "").toLowerCase(),
   github: "https://" + line[2].trim(),
 }));
 
-const { username, password, domain } = dotenv.parse(open("./.env"));
+export let options = {
+  setupTimeout: "60m",
+  teardownTimeout: "60m",
+  scenarios: {
+    build: {
+      executor: "shared-iterations",
+      vus: csv.length,
+      iterations: csv.length,
+      maxDuration: "60m",
+    },
+  },
+};
+
+const { username, password, domain } = {
+  "domain": "http://localhost:8080",
+  "username": "adrian.ardizza",
+  "password": "ardizza123",
+};
 
 export function setup() {
   console.log({ domain });
@@ -116,8 +120,10 @@ export function setup() {
   }
 }
 
-export default async function() {
+export default async function () {
+  const testData = csv[execution.vu.idInTest]
   // login and get cookie
+  sleep(1 * execution.vu.idInTest)
   const loginRes = http.post(
     domain + "/api/login",
     JSON.stringify({
@@ -143,62 +149,44 @@ export default async function() {
     })
     .join("; ");
 
-  let buildPromises = [];
+  const { name, github } = testData
 
-  for (const { name, github } of csv) {
-    buildPromises.push(
-      new Promise((resolve, reject) => {
-        // push to pws
-        console.log(`pushing project ${name} to pws`);
-        const execRes = exec.command("git", ["push", "-u", "pws", "master"], {
-          dir: "clone/" + name,
-        });
+  console.log(`pushing project ${name} to pws`);
 
-        // check if project is deployed
-        while (true) {
-          sleep(1);
-          const projectRes = http.get(
-            `${domain}/api/project/${username}/${name}/builds`,
-            {
-              headers: {
-                Cookie: cookieString,
-              },
-            },
-          );
+  const execRes = exec.command("git", ["push", "-u", "pws", "master"], {
+    dir: "clone/" + name,
+  });
 
-          if (projectRes.status !== 200) {
-            console.log(`error getting project ${name}`);
-            reject();
-            return;
-          }
-
-          const projectData = JSON.parse(projectRes.body);
-          const project = projectData.data[0];
-          if (project.status === "SUCCESSFUL") {
-            console.log(`project ${name} deployed`);
-            resolve();
-            return;
-          }
-
-          if (project.status === "FAILED") {
-            console.log(`project ${name} failed to deploy`);
-            reject();
-            return;
-          }
-        }
-      }),
+  while (true) {
+    console.log({ message: `check project ${name} current status` })
+    const projectRes = http.get(
+      `${domain}/api/project/${username}/${name}/builds`,
+      {
+        headers: {
+          Cookie: cookieString,
+        },
+      },
     );
+
+    if (projectRes.status !== 200) {
+      console.log(`error getting project ${name}`);
+      break
+    }
+
+    const projectData = JSON.parse(projectRes.body);
+    const project = projectData.data[0];
+    if (project && project.status === "SUCCESSFUL") {
+      console.log(`project ${name} deployed`);
+      break
+    }
+
+    if (project && project.status === "FAILED") {
+      console.log(`project ${name} failed to deploy`);
+      break
+    }
+
+    sleep(1 + Math.random() * 4)
   }
-
-  console.log({ length: buildPromises.length });
-
-  Promise.allSettled(buildPromises)
-    .then((results) => {
-      console.log("all project created");
-    })
-    .catch((error) => {
-      console.log("error happened when creating project", { error });
-    });
 }
 
 export function teardown() {
