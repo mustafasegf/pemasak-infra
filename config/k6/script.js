@@ -82,6 +82,7 @@ export function setup() {
       try {
         exec.command("git", ["clone", github, name], {
           dir: "clone",
+          fatalError: false,
         });
       } catch (error) {
         console.log("error cloning repo", github, { error });
@@ -93,6 +94,7 @@ export function setup() {
       console.log("changing main branch");
       exec.command("git", ["branch", "-M", "master"], {
         dir: "clone/" + name,
+        fatalError: false,
       });
 
       // add remote
@@ -102,6 +104,7 @@ export function setup() {
         ["remote", "add", "pws", domain + "/" + username + "/" + name],
         {
           dir: "clone/" + name,
+          fatalError: false,
         },
       );
     }
@@ -131,6 +134,7 @@ export default async function ({ cookieString }) {
 
   const execRes = exec.command("git", ["push", "-u", "pws", "master"], {
     dir: "clone/" + name,
+    fatalError: false,
   });
 
   while (true) {
