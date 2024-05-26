@@ -2542,7 +2542,7 @@ dependencies = [
 [[package]]
 name = "nixpacks"
 version = "1.18.0"
-source = "git+https://github.com/Meta502/nixpacks#f525f2b9ec561bce8170c80df926699e944e5e68"
+source = "git+https://github.com/Meta502/nixpacks?rev=dcc3bff#dcc3bff01571561eb80fa4acd7db345e703f9826"
 dependencies = [
  "actix-web",
  "anyhow",
