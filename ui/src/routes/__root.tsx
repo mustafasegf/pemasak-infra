@@ -2,7 +2,7 @@ import AuthNavbar from '@/components/AuthNavbar'
 import NavSidebar from '@/components/NavSidebar'
 import AuthProvider from '@/contexts/AuthContext'
 import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/router-devtools'
+// import { TanStackRouterDevtools } from '@tanstack/router-devtools'
 import { useEffect } from 'react'
 
 export const Route = createRootRoute({
@@ -32,7 +32,7 @@ export const Route = createRootRoute({
               <Outlet />
             </div>
           )}
-          <TanStackRouterDevtools />
+          {/* <TanStackRouterDevtools /> */}
         </div>
       </AuthProvider>
     )
