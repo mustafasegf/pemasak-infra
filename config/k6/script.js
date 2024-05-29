@@ -19,7 +19,7 @@ export let options = {
   scenarios: {
     build: {
       executor: "shared-iterations",
-      vus: csv.length,
+      vus: 50,
       iterations: csv.length,
       maxDuration: "60m",
     },
@@ -121,37 +121,13 @@ export function setup() {
       },
     );
   }
+
+  return { cookieString }
 }
 
-export default async function () {
-  const testData = csv[execution.vu.idInTest]
-  // login and get cookie
-  sleep(1 * execution.vu.idInTest)
-  const loginRes = http.post(
-    domain + "/api/login",
-    JSON.stringify({
-      username,
-      password,
-    }),
-    { headers: { "Content-Type": "application/json" } },
-  );
-
-  console.log({
-    loginStatus: loginRes.status,
-  });
-
-  if (loginRes.status !== 302) {
-    console.log("login failed");
-    return;
-  }
-
-  const cookies = loginRes.cookies;
-  const cookieString = Object.keys(cookies)
-    .map((name) => {
-      return `${name}=${cookies[name][0].value}`;
-    })
-    .join("; ");
-
+export default async function ({ cookieString }) {
+  return
+  const testData = csv[execution.scenario.iterationInTest]
   const { name, github } = testData
 
   console.log(`pushing project ${name} to pws`);
