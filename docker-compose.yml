@@ -179,6 +179,15 @@ services:
       # - ./config/loki:/etc/loki
       - loki-data:/loki
 
+  docs:
+    build:
+      context: ./docs-ui
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+
 volumes:
   db-data:
     driver: local
