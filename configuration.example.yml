@@ -44,3 +44,7 @@ container:
   # amount of swap = memory_swap - memory_limit
   memory: 256M
   swap: 320M
+
+grafana:
+  user: "user"
+  password: "password"

@@ -6,6 +6,8 @@ db_password=$(echo "$json" | jq -r '.database.password')
 db_port=$(echo "$json" | jq -r '.database.port')
 db_name=$(echo "$json" | jq -r '.database.name')
 application_port=$(echo "$json" | jq -r '.application.port')
+grafana_user=$(echo "$json" | jq -r '.grafana.user')
+grafana_password=$(echo "$json" | jq -r '.grafana.password')
 
 # Print Docker Compose and SQLx format
 echo "# for docker compose"
@@ -14,6 +16,8 @@ echo "DB_PASSWORD=$db_password"
 echo "DB_PORT=$db_port"
 echo "DB_NAME=$db_name"
 echo "APPLICATION_PORT=$application_port"
+echo "GF_SECURITY_ADMIN_USER=$grafana_user"
+echo "GF_SECURITY_ADMIN_PASSWORD=$grafana_password"
 
 echo ""
 
