@@ -27,3 +27,33 @@ make sure your user has docker access by running `groups` and check if docker is
 
 ### sqlx
 after writing code. Before commit, run `cargo sqlx prepare`. To do that automatically you can enable the git hook by running `ln -sf ../../scripts/pre-commit ./.git/hooks`
+
+### Server Maintainer Guide
+1. Make sure docker is installed
+2. Change the docker daemon file in `/etc/docker/daemon.json` to
+```json
+{
+  "metrics-addr": "127.0.0.1:9323",
+  "features": {
+    "buildkit": false
+  },
+  "bip": "172.32.0.1/12",
+  "default-address-pools": [
+    {
+      "base" :"172.17.0.0/12",
+      "size": 24
+    },
+    {
+      "base" :"192.168.0.0/16",
+      "size": 24
+    }
+  ]
+}
+```
+to make sure the project won't ran out of ip.
+
+3. Make sure the user have docker group access by running `groups` and check if docker is in it. If not run `sudo usermod -aG docker $USER && newgrp docker`
+4. Copy `configuration.example.yml` to `configuration.yml` and change the `configuration.yml` `application.bodylimit` to large value like 500mb or 1gb to allow large file upload.
+5. Copy `.env.example` in `ui` folder to `.env` and change the `VITE_API_URL` to the server ip
+6. Run `./scripts/env.sh > .env` to generate the environment variable
+7. Run `docker compose up -d` to start the server
