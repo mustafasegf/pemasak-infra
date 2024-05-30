@@ -27,6 +27,12 @@ export let options = {
       maxDuration: "60m",
     },
   },
+  thresholds: {
+    'iteration_duration{scenario:default}': [`max>=0`],
+    'iteration_duration{group:::setup}': [`max>=0`],
+    'iteration_duration{group:::teardown}': [`max>=0`],
+    'http_req_duration{scenario:default}': [`max>=0`],
+  },
 };
 
 const { username, password, domain } = {
