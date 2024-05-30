@@ -108,7 +108,7 @@ pub async fn build_docker(
                 cmd.args(&[
                     "build",
                     "--cpu-period=100000",
-                    "--cpu-quota=100000",
+                    "--cpu-quota=50000",
                     "-t",
                     &image_name,
                     "-f",
