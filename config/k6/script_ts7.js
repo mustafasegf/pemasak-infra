@@ -20,7 +20,7 @@ export let options = {
   setupTimeout: "60m",
   teardownTimeout: "60m",
   scenarios: {
-    build: {
+    default: {
       executor: "shared-iterations",
       vus: 8,
       iterations: 8,
