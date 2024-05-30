@@ -14,7 +14,7 @@ let csv = csvArr.map((line) => ({
   github: "https://" + line[2].trim(),
 })).slice(0, 16);
 
-const db = sql.open('postgres', 'postgresql://pemasak:Memet-Skibidi-Gyatt-69@localhost:5439/pemasak');
+const db = sql.open('postgres', 'postgresql://pemasak:Memet-Skibidi-Gyatt-69@localhost:5439/pemasak?sslmode=disable');
 
 export let options = {
   setupTimeout: "60m",
