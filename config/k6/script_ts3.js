@@ -33,7 +33,7 @@ export let options = {
 };
 
 const { username, password, domain } = {
-  "domain": "http://localhost:8080",
+  "domain": "https://pbp.cs.ui.ac.id",
   "username": "adrian.ardizza",
   "password": "ardizza123",
 };
