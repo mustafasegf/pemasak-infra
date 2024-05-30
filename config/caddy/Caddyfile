@@ -1,0 +1,14 @@
+*.{$DOMAIN:localhost}, {$DOMAIN:localhost} {
+	reverse_proxy 0.0.0.0:8080
+	
+	@grafana host grafana.{$DOMAIN:localhost}
+	handle @grafana {
+		reverse_proxy 0.0.0.0:3000
+		
+	}
+
+	@docs host docs.{$DOMAIN:localhost}
+	handle @docs {
+		reverse_proxy 0.0.0.0:4000
+	}
+}

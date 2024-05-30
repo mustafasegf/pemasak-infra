@@ -1,0 +1,9 @@
+{
+    "label": "Tutorial - Getting Started",
+    "position": 3,
+    "link": {
+      "type": "generated-index",
+      "description": "Tutorial to deploy your simple web application"
+    }
+  }
+  

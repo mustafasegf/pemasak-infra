@@ -119,9 +119,8 @@ services:
       - "3000:3000"
 
     environment:
-      # TODO: move this to env
-      - GF_SECURITY_ADMIN_USER=chef
-      - GF_SECURITY_ADMIN_PASSWORD=strong-powerful-password
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
         #- GF_SERVER_ROOT_URL=/grafana
         #- GF_SERVER_SERVE_FROM_SUB_PATH=true
     volumes:
@@ -178,6 +177,36 @@ services:
     volumes:
       # - ./config/loki:/etc/loki
       - loki-data:/loki
+
+  docs:
+    build:
+      context: ./docs-ui
+      dockerfile: Dockerfile
+    container_name: docs-pemasak
+    restart: always
+    # network_mode: "host"
+    networks:
+      - pemasak
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+  
+  caddy:
+    image: caddy:2.7.6
+    container_name: caddy-pemasak
+    restart: always
+    network_mode: "host"
+    # networks:
+    #   - pemasak
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      
 
 volumes:
   db-data:
