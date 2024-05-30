@@ -3,6 +3,7 @@ import exec from "k6/x/exec";
 import read from "k6/x/read";
 import { sleep } from "k6";
 import execution from "k6/execution";
+import sql from 'k6/x/sql';
 
 const csvData = open("./data-all.csv").trim();
 const csvArr = csvData
@@ -11,24 +12,20 @@ const csvArr = csvData
 let csv = csvArr.map((line) => ({
   name: line[1].trim().replaceAll(" ", "").toLowerCase(),
   github: "https://" + line[2].trim(),
-})).slice(0, 8);
+})).slice(0, 16);
+
+const db = sql.open('postgres', 'postgresql://pemasak:Memet-Skibidi-Gyatt-69@localhost:5439/pemasak');
 
 export let options = {
   setupTimeout: "60m",
   teardownTimeout: "60m",
-  thresholds: {
-    'iteration_duration{scenario:default}': [`max>=0`],
-    'iteration_duration{group:::setup}': [`max>=0`],
-    'iteration_duration{group:::teardown}': [`max>=0`],
-    'http_req_duration{scenario:default}': [`max>=0`],
-  },
   scenarios: {
-    default: {
+    build: {
       executor: "shared-iterations",
       vus: 1,
       iterations: 2,
       maxDuration: "60m",
-    }
+    },
   },
 };
 
@@ -41,6 +38,8 @@ const { username, password, domain } = {
 export function setup() {
   console.log({ domain });
   console.log({ pwd: exec.command("pwd") });
+
+  const dbIdMap = {}
 
   // make sure git auth is disable
 
@@ -71,8 +70,9 @@ export function setup() {
     .join("; ");
 
   console.log({ cookieString });
+  // console.log({ loginRes });
 
-  for (const { name, github } of csv.slice(execution.test.options.iterations)) {
+  for (const { name, github } of csv) {
     console.log({ name, domain });
 
     // check if project already exists
@@ -125,12 +125,16 @@ export function setup() {
         },
       },
     );
+    const parsedRes = JSON.parse(createRes.body)
+    dbIdMap[name] = parsedRes.id
   }
 
-  return { cookieString }
+
+  console.log(dbIdMap)
+  return { cookieString, dbIdMap }
 }
 
-export default async function ({ cookieString }) {
+export default async function ({ cookieString, dbIdMap }) {
   const testData = csv[execution.scenario.iterationInTest]
   const { name, github } = testData
 
@@ -142,34 +146,20 @@ export default async function ({ cookieString }) {
   });
 
   while (true) {
-    console.log({ message: `check project ${name} current status` })
-    const projectRes = http.get(
-      `${domain}/api/project/${username}/${name}/builds`,
-      {
-        headers: {
-          Cookie: cookieString,
-        },
-      },
-    );
+    sleep(1 + Math.random() * 1)
+    const results = sql.query(db, "SELECT status FROM builds WHERE project_id = $1;", dbIdMap[name])    
+    const status = String.fromCharCode.apply(null, results[0].status)
 
-    if (projectRes.status !== 200) {
-      console.log(`error getting project ${name}`);
-      break
-    }
 
-    const projectData = JSON.parse(projectRes.body);
-    const project = projectData.data[0];
-    if (project && project.status === "SUCCESSFUL") {
+    if (status === "successful") {
       console.log(`project ${name} deployed`);
       break
     }
 
-    if (project && project.status === "FAILED") {
+    if (status === "failed") {
       console.log(`project ${name} failed to deploy`);
       break
     }
-
-    sleep(1 + Math.random() * 4)
   }
 }
 

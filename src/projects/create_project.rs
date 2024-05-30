@@ -41,6 +41,7 @@ struct ErrorResponse {
 
 #[derive(Serialize, Debug)]
 struct CreateProjectResponse {
+    id: Uuid,
     owner_name: String,
     project_name: String,
     domain: String,
@@ -279,6 +280,7 @@ pub async fn post(
 
     let json = serde_json::to_string(
         &CreateProjectResponse {
+            id: project_id,
             owner_name: owner.clone(),
             project_name: project.clone(),
             domain: format!("{protocol}://{domain}/{owner}/{project}"),
