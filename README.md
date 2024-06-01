@@ -78,5 +78,6 @@ The bodylimit is important to mitigate git error `unexpected disconnect while re
 release: python manage.py collectstatic --noinput && python manage.py migrate --noinput
 web: gunicorn [project_name].wsgi
 ```
+and make sure have `gunicorn` in the `requirements.txt` file.
 
 2. Make sure to push branch is master to deploy to the server since the server checks only the master branch.
