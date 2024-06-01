@@ -38,15 +38,12 @@ after writing code. Before commit, run `cargo sqlx prepare`. To do that automati
    docker knowledge including debugging docker runtime and navigating with the cli.
    linux administration used for debugging if the storage ran out, increasing the file open limits.
    caddy to debug the reverse proxy.
-1. Make sure docker is installed
+1. Make sure docker is installed. The server uses docker build to build the image and to run the image.
 2. Change the docker daemon file in `/etc/docker/daemon.json` to
 
 ```json
 {
   "metrics-addr": "127.0.0.1:9323",
-  "features": {
-    "buildkit": false
-  },
   "bip": "172.32.0.1/12",
   "default-address-pools": [
     {
@@ -61,14 +58,17 @@ after writing code. Before commit, run `cargo sqlx prepare`. To do that automati
 }
 ```
 
-to make sure the project won't ran out of ip.
+to make sure the project won't ran out of ip. This is important for deploying a lot of project since the default settings only give you 31 networks.
 
-3. Make sure the user have docker group access by running `groups` and check if docker is in it. If not run `sudo usermod -aG docker $USER && newgrp docker`
-4. Increase the file open limit size in `/etc/security/limits.conf` to large number like `65536` and add `fs.file-max = 65536` to `/etc/sysctl.conf` file.
+3. Make sure the user have docker group access by running `groups` and check if docker is in it. If not run `sudo usermod -aG docker $USER && newgrp docker`  
+The application uses docker API to access the docker daemon. Make sure the user have access to the docker daemon.
+4. Increase the file open limit size in `/etc/security/limits.conf` to large number like `65536` and add `fs.file-max = 65536` to `/etc/sysctl.conf` file.  
+This is important to make sure the server can handle a lot of file open at the same time when deploying a lot of project.
 5. Copy `configuration.example.yml` to `configuration.yml` and change the `configuration.yml` `application.bodylimit` to large value like 500mb or 1gb to allow large file upload.
-6. Copy `.env.example` in `ui` folder to `.env` and change the `VITE_API_URL` to the server ip
-7. Run `./scripts/env.sh > .env` to generate the environment variable
-8. Run `docker compose up -d` to start the server
+The bodylimit is important to mitigate git error `unexpected disconnect while reading sideband packet`.
+6. Copy `.env.example` in `ui` folder to `.env` and change the `VITE_API_URL` to the server ip.
+7. Run `./scripts/env.sh > .env` to generate the environment variable.
+8. Run `docker compose up -d` to start the server. This will take a while.
 
 ### Common Issue for deployment
 
@@ -79,4 +79,4 @@ release: python manage.py collectstatic --noinput && python manage.py migrate --
 web: gunicorn [project_name].wsgi
 ```
 
-2. Make sure to push branch is master to deploy to the server
+2. Make sure to push branch is master to deploy to the server since the server checks only the master branch.
