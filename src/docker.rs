@@ -107,6 +107,8 @@ pub async fn build_docker(
              let mut cmd = Command::new("docker");
                 cmd.args(&[
                     "build",
+                    "--cpu-period=100000",
+                    "--cpu-quota=50000",
                     "-t",
                     &image_name,
                     "-f",
