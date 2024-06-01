@@ -61,11 +61,11 @@ after writing code. Before commit, run `cargo sqlx prepare`. To do that automati
 to make sure the project won't ran out of ip. This is important for deploying a lot of project since the default settings only give you 31 networks.
 
 3. Make sure the user have docker group access by running `groups` and check if docker is in it. If not run `sudo usermod -aG docker $USER && newgrp docker`  
-The application uses docker API to access the docker daemon. Make sure the user have access to the docker daemon.
+   The application uses docker API to access the docker daemon. Make sure the user have access to the docker daemon.
 4. Increase the file open limit size in `/etc/security/limits.conf` to large number like `65536` and add `fs.file-max = 65536` to `/etc/sysctl.conf` file.  
-This is important to make sure the server can handle a lot of file open at the same time when deploying a lot of project.
+   This is important to make sure the server can handle a lot of file open at the same time when deploying a lot of project.
 5. Copy `configuration.example.yml` to `configuration.yml` and change the `configuration.yml` `application.bodylimit` to large value like 500mb or 1gb to allow large file upload.
-The bodylimit is important to mitigate git error `unexpected disconnect while reading sideband packet`.
+   The bodylimit is important to mitigate git error `unexpected disconnect while reading sideband packet`.
 6. Copy `.env.example` in `ui` folder to `.env` and change the `VITE_API_URL` to the server ip.
 7. Run `./scripts/env.sh > .env` to generate the environment variable.
 8. Run `docker compose up -d` to start the server. This will take a while.
@@ -78,6 +78,18 @@ The bodylimit is important to mitigate git error `unexpected disconnect while re
 release: python manage.py collectstatic --noinput && python manage.py migrate --noinput
 web: gunicorn [project_name].wsgi
 ```
+
 and make sure have `gunicorn` in the `requirements.txt` file.
 
 2. Make sure to push branch is master to deploy to the server since the server checks only the master branch.
+
+### Settingup the docusaurus
+
+1. Install nodejs and pnpm
+2. Go to `docs-ui` folder
+3. Run `pnpm install`
+4. Run `pnpm start` to start the docusaurus
+5. Add folder in `docs` folder to add new documentation
+6. Access the docusaurus in `localhost:4000` to access the documentation
+7. To deploy use docker compose by running `docker compose up docs -d` or it also run on default `docker compose up -d` to deploy all service
+8. The docs will be available in `docs.[domain]` domain. The domain is configured in the `configuration.yml` file.
