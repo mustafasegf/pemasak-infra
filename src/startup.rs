@@ -1,6 +1,7 @@
 use axum::extract::{Host, State};
 use axum::middleware::Next;
-use axum::{middleware, Router};
+use axum::response::Redirect;
+use axum::{middleware, routing, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
@@ -41,9 +42,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers([
-            "Content-Type".parse().unwrap(),
-        ])
+        .allow_headers(["Content-Type".parse().unwrap()])
         .allow_origin([
             "http://localhost:8080".parse().unwrap(),
             "http://localhost:5173".parse().unwrap(),
@@ -58,6 +57,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
     let owners_router = owner::router(state.clone(), &config).await;
 
     let app = Router::new()
+        .route("/", routing::any(|| async { Redirect::permanent("/web") }))
         .merge(git_router)
         .merge(auth_router)
         .merge(dashboard_router)
@@ -73,7 +73,10 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .layer(SessionLayer::new(session_store))
         .nest_service("/assets", ServeDir::new("assets"))
         // TODO: find a way to have this on the "/" path instead of "/web"
-        .nest_service("/web", ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")))
+        .nest_service(
+            "/web",
+            ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")),
+        )
         .fallback(fallback)
         .with_state(state.clone())
         .route_layer(middleware::from_fn_with_state(state, fallback_middleware))
