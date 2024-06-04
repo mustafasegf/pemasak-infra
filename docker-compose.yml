@@ -33,14 +33,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      
-  # networks:
-  #   - pemasak
+
+    # networks:
+    #   - pemasak
     network_mode: "host"
-    command : [ "migrate", "apply", 
-              "--dir", "file://migrations", 
-              "--url", "postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}?search_path=public&sslmode=disable" ]
-  
+    command:
+      [
+        "migrate",
+        "apply",
+        "--dir",
+        "file://migrations",
+        "--url",
+        "postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}?search_path=public&sslmode=disable",
+      ]
+
   server:
     container_name: server-pemasak
     restart: always
@@ -50,9 +56,9 @@ services:
     ports:
       - "${APPLICATION_PORT}:${APPLICATION_PORT}"
     environment:
-    #   - "DATABASE_HOST=db"
-    #   - "DATABASE_PORT=5432"
-    #   - "APPLICATION_HOST=0.0.0.0"
+      #   - "DATABASE_HOST=db"
+      #   - "DATABASE_PORT=5432"
+      #   - "APPLICATION_HOST=0.0.0.0"
       - "GIT_BASE=./git-repo"
     volumes:
       - ./configuration.yml:/app/configuration.yml
@@ -82,7 +88,7 @@ services:
     # network_mode: "host"
     networks:
       - pemasak
-    cap_add: [ 'NET_ADMIN', 'NET_RAW' ]
+    cap_add: ["NET_ADMIN", "NET_RAW"]
     mem_limit: 8M
     restart: always
 
@@ -95,14 +101,14 @@ services:
       - pemasak
     ports:
       - "9090:9090"
-      
+
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=180d'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=180d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
         # - '--web.config.file=/etc/prometheus/web.yml'
     volumes:
       - ./config/prometheus:/etc/prometheus
@@ -123,6 +129,9 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
         #- GF_SERVER_ROOT_URL=/grafana
         #- GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_RENDERING_SERVER_URL=http://renderer:8081/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
+      - GF_LOG_FILTERS=rendering:debug
     volumes:
       - ./config/grafana:/etc/grafana/provisioning/datasources
       - grafana-data:/var/lib/grafana
@@ -135,11 +144,11 @@ services:
     networks:
       - pemasak
     command:
-      - '--path.procfs=/host/proc'
-      - '--path.rootfs=/rootfs'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-      - '--collector.systemd'
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--collector.systemd"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -191,7 +200,7 @@ services:
       - "4000:4000"
     environment:
       - PORT=4000
-  
+
   caddy:
     image: caddy:2.7.6
     container_name: caddy-pemasak
@@ -207,7 +216,11 @@ services:
       - caddy:/data
     environment:
       - DOMAIN=${DOMAIN:-localhost}
-      
+
+  renderer:
+    image: grafana/grafana-image-renderer:latest
+    ports:
+      - 8081
 
 volumes:
   db-data:
