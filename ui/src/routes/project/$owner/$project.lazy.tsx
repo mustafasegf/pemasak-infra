@@ -24,7 +24,8 @@ const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
 function ProjectDashboard() {
     // @ts-ignore
     const { owner, project } = useParams({ strict: false })
-    const domain = import.meta.env.VITE_API_URL.match(/((.*):\/\/(.*)\/)/)?.[0].replace(/^http:\/\//, "")
+    const domain = import.meta.env.VITE_API_URL.match(/((.*):\/\/(.*)\/)/)?.[0].replace(/^https?:\/\//, "")
+    console.log(domain)
 
     const { data: builds, isLoading } = useSWR(`${import.meta.env.VITE_API_URL}/project/${owner}/${project}/builds/`, apiFetcher)
 
@@ -124,7 +125,7 @@ function ProjectDashboard() {
                             </Link>
                         </div>
 
-                        <a href={builds?.data?.length > 0 ? `http://${owner.replace(".", "-")}-${project}.${domain}` : undefined}>
+                        <a target="_blank" href={builds?.data?.length > 0 ? `http://${owner.replace(".", "-")}-${project}.${domain}` : undefined}>
                             <Button size="lg" className="text-foreground" disabled={builds?.data?.length <= 0}>
                                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-2">
                                     <path d="M15.8333 16.1667H16.1667V15.8333V10.3333H17.1667V15.8333C17.1667 16.5659 16.5659 17.1667 15.8333 17.1667H4.16667C3.42685 17.1667 2.83333 16.567 2.83333 15.8333V4.16667C2.83333 3.43301 3.42685 2.83333 4.16667 2.83333H9.66667V3.83333H4.16667H3.83333V4.16667V15.8333V16.1667H4.16667H15.8333ZM16.1667 8V5.34167V4.53693L15.5976 5.10596L7.64167 13.0619L6.93807 12.3583L14.894 4.40237L15.4631 3.83333H14.6583H12V2.83333H17.1667V8H16.1667Z" fill="#EFF6FF" stroke="#EFF6FF" stroke-width="0.666667" />
