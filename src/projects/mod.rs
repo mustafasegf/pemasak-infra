@@ -21,7 +21,7 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/:owner/:project/preferences", get(preferences::get))
         .route_with_tsr("/api/project/:owner/:project/delete", post(delete_project::post))
         .route_with_tsr("/api/project/:owner/:project/volume/delete", post(delete_volume::post))
-        .route_with_tsr("/:owner/:project/terminal/ws", get(web_terminal::ws))
-        .route_with_tsr("/:owner/:project/terminal", get(web_terminal::get))
+        .route_with_tsr("/api/project/:owner/:project/terminal/ws", get(web_terminal::ws))
+        .route_with_tsr("/api/project/:owner/:project/terminal", get(web_terminal::get))
         .route_layer(middleware::from_fn(auth))
 }

@@ -35,6 +35,9 @@ dependencies:
   react-hook-form:
     specifier: ^7.51.3
     version: 7.51.3(react@18.2.0)
+  react-use-websocket:
+    specifier: 3.0.0
+    version: 3.0.0(react-dom@18.2.0)(react@18.2.0)
   swr:
     specifier: ^2.2.5
     version: 2.2.5(react@18.2.0)
@@ -2436,6 +2439,16 @@ packages:
       invariant: 2.2.4
       react: 18.2.0
       tslib: 2.6.2
+    dev: false
+
+  /react-use-websocket@3.0.0(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-BInlbhXYrODBPKIplDAmI0J1VPM+1KhCLN09o+dzgQ8qMyrYs4t5kEYmCrTqyRuMTmpahylHFZWQXpfYyDkqOw==}
+    peerDependencies:
+      react: '>= 16.8.0'
+      react-dom: '>= 16.8.0'
+    dependencies:
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
     dev: false
 
   /react@18.2.0:

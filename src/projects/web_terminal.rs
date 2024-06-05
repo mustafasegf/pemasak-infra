@@ -14,23 +14,6 @@ use crate::{components::Base, startup::AppState, projects::components::ProjectHe
 #[serde(rename_all = "camelCase")]
 pub struct WsRequest {
     pub message: String,
-    #[serde(rename = "HEADERS")]
-    pub headers: Headers,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Headers {
-    #[serde(rename = "HX-Request")]
-    pub hx_request: Option<String>,
-    #[serde(rename = "HX-Trigger")]
-    pub hx_trigger: Option<String>,
-    #[serde(rename = "HX-Trigger-Name")]
-    pub hx_trigger_name: Option<String>,
-    #[serde(rename = "HX-Target")]
-    pub hx_target: Option<String>,
-    #[serde(rename = "HX-Current-URL")]
-    pub hx_current_url: Option<String>,
 }
 
 #[tracing::instrument]
@@ -144,7 +127,7 @@ pub async fn ws(
                                     let msg = String::from_utf8_lossy(&bytes);
 
                                     if sender
-                                        .send(Message::Text(format!(r#"<pre id="data" hx-swap-oob="beforeend">{msg}</pre> "#)))
+                                        .send(Message::Text(format!("{msg}")))
                                         .await
                                         .is_err()
                                     {
