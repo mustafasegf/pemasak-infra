@@ -2,6 +2,7 @@ import AuthNavbar from '@/components/AuthNavbar'
 import NavSidebar from '@/components/NavSidebar'
 import AuthProvider from '@/contexts/AuthContext'
 import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router'
+import { Toaster } from 'react-hot-toast';
 // import { TanStackRouterDevtools } from '@tanstack/router-devtools'
 import { useEffect } from 'react'
 
@@ -20,6 +21,7 @@ export const Route = createRootRoute({
 
     return (
       <AuthProvider>
+        <Toaster />
         <div className="w-full h-full circle-bg min-h-screen text-foreground">
           {isAuthRoute ? (
             <>
