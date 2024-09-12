@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select o.id, o.name\n           FROM project_owners o\n           JOIN users_owners uo on uo.owner_id = o.id\n           where uo.user_id = $1\n           AND o.deleted_at is NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "799c958e92adb532b34441f8ff86a8a6f8f1f4437d5681ac4bf3d77646b1fcd8"
+}
