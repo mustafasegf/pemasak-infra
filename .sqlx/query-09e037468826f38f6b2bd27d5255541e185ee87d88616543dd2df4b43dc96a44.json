@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT projects.id, domains.name AS container_name\n           FROM projects\n           JOIN project_owners ON projects.owner_id = project_owners.id\n           JOIN users_owners ON project_owners.id = users_owners.owner_id\n           JOIN domains ON domains.project_id = projects.id\n           AND projects.name = $1\n           AND project_owners.name = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "container_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "09e037468826f38f6b2bd27d5255541e185ee87d88616543dd2df4b43dc96a44"
+}
