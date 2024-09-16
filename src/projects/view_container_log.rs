@@ -1,5 +1,3 @@
-use std::fmt;
-
 use axum::extract::{State, Path};
 use axum::response::Response;
 use bollard::container::{LogsOptions, LogOutput};

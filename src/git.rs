@@ -35,7 +35,7 @@ use data_encoding::BASE64;
 
 async fn basic_auth<B>(
     State(AppState { pool, git_auth, .. }): State<AppState>,
-    Path((owner, repo)): Path<(String, String)>,
+    Path((_owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
     request: Request<B>,
     next: Next<B>,

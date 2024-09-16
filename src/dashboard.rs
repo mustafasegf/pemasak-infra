@@ -20,11 +20,6 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
 }
 
 #[derive(Serialize, Debug)]
-struct ErrorResponse {
-    message: String,
-}
-
-#[derive(Serialize, Debug)]
 struct Project {
     id: Uuid,
     name: String,

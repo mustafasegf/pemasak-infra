@@ -11,7 +11,7 @@ use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
 use tokio::sync::mpsc::Sender;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 

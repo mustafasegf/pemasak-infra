@@ -568,7 +568,7 @@ pub async fn build_docker(
             if let Err(err) = docker
                 .create_container(
                     Some(CreateContainerOptions {
-                        name: container_name.clone(),
+                        name: container_name,
                         platform: None,
                     }),
                     config,
@@ -606,7 +606,7 @@ pub async fn build_docker(
                 .connect_network(
                     &network_name,
                     ConnectNetworkOptions {
-                        container: container_name.clone(),
+                        container: container_name,
                         ..Default::default()
                     },
                 )
@@ -673,7 +673,7 @@ pub async fn build_docker(
     let res = docker
         .create_container(
             Some(CreateContainerOptions {
-                name: container_name.clone(),
+                name: container_name,
                 platform: None,
             }),
             config,
@@ -691,7 +691,7 @@ pub async fn build_docker(
         .connect_network(
             &network_name,
             ConnectNetworkOptions {
-                container: container_name.clone(),
+                container: container_name,
                 ..Default::default()
             },
         )

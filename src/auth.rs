@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use axum::{
-    extract::{self, Json, State}, middleware::Next, response::{Html, Response}, routing::get, Form, Router
+    extract::{Json, State}, middleware::Next, response::{Html, Response}, routing::get, Router
 };
 use axum_extra::routing::RouterExt;
 use axum_session::SessionStore;

@@ -3,8 +3,6 @@ use axum::response::Response;
 use bollard::Docker;
 use bollard::container::{StopContainerOptions, StartContainerOptions};
 use hyper::{Body, StatusCode};
-use leptos::ssr::render_to_string;
-use leptos::{view, IntoView};
 use serde::Serialize;
 use crate::auth::Auth;
 

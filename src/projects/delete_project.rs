@@ -7,8 +7,6 @@ use bollard::Docker;
 use bollard::container::{RemoveContainerOptions, StopContainerOptions};
 use bollard::network::InspectNetworkOptions;
 use hyper::{Body, StatusCode};
-use leptos::ssr::render_to_string;
-use leptos::{view, IntoView};
 use serde::Serialize;
 
 use crate::auth::Auth;
