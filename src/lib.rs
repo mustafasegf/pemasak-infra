@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod components;
 pub mod configuration;
 pub mod docker;
 pub mod git;
