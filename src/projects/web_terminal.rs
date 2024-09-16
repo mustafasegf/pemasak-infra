@@ -1,14 +1,10 @@
 use std::{net::SocketAddr, time::Duration, borrow::Cow};
 
-use axum::{extract::{WebSocketUpgrade, Path, ConnectInfo, ws::{Message, CloseFrame}, State}, TypedHeader, headers, response::{Response, IntoResponse}};
+use axum::{extract::{WebSocketUpgrade, Path, ConnectInfo, ws::{Message, CloseFrame}}, TypedHeader, headers, response::IntoResponse};
 use bollard::{Docker, exec::{CreateExecOptions, StartExecResults}};
 use futures_util::{StreamExt, SinkExt};
-use hyper::{Body, StatusCode};
-use leptos::{ssr::render_to_string, view, IntoView};
 use tokio::io::AsyncWriteExt;
 use serde::{Deserialize, Serialize};
-
-use crate::{components::Base, startup::AppState, projects::components::ProjectHeader};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,45 +226,4 @@ pub async fn ws(
             tracing::info!(?who, "Websocket context destroyed");
         }
     })
-}
-
-#[tracing::instrument]
-pub async fn get(Path((owner, project)): Path<(String, String)>, State(AppState { domain, .. }): State<AppState>) -> Response<Body> {
-    let ws_path = format!("/{owner}/{project}/terminal/ws");
-    let html = render_to_string(move || {
-        view! {
-            <Base is_logged_in={true}>
-                <ProjectHeader owner={owner.clone()} project={project.clone()} domain={domain.clone()}></ProjectHeader>
-
-                <h2 class="text-xl mb-4">
-                    Web Terminal
-                </h2>
-                <div class="bg-neutral/40 backdrop-blur-sm p-2 mockup-code" hx-ext="ws" ws-connect={ws_path} hx-on="htmx:wsAfterMessage: const data = document.getElementById('data'); data.scrollTop = data.scrollHeight;"> 
-                    <pre id="data" hx-swap-oob="beforeend" class="flex flex-col gap-1 px-4 max-h-64 overflow-y-auto"></pre>
-
-                    <form class="px-4" id="form" ws-send hx-on="
-                        htmx:wsBeforeSend: if (JSON.parse(event?.detail?.message).message === 'clear') document.getElementById('data').innerHTML = '';
-                        htmx:wsAfterSend: this.reset();
-                    ">
-                        <div class="flex space-x-2">
-                            <span>
-                                {"> "}
-                            </span>
-                            <input id="terminal-input" name="message" type="text" placeholder="enter command" 
-                            // class="input input-bordered w-full max-w-xs"
-                                class="bg-transparent border-transparent w-full text-white !outline-none"
-                            />
-                        </div>
-                    </form>
-                </div>
-                <pre id="result"></pre>
-            </Base>
-        }
-    })
-    .into_owned();
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .body(Body::from(html))
-        .unwrap()
 }
