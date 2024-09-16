@@ -54,7 +54,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
     let auth_router = auth::api::router(state.clone(), &config).await;
     let dashboard_router: Router<AppState> = dashboard::api::router(state.clone(), &config).await;
     let project_router = projects::api::router(state.clone(), &config).await;
-    let owners_router = owner::router(state.clone(), &config).await;
+    let owners_router = owner::api::router(state.clone(), &config).await;
 
     let app = Router::new()
         .route("/", routing::any(|| async { Redirect::permanent("/web") }))
