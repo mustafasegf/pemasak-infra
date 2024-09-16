@@ -51,7 +51,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .allow_credentials(true);
 
     let git_router = git::router(state.clone(), &config);
-    let auth_router = auth::router(state.clone(), &config).await;
+    let auth_router = auth::api::router(state.clone(), &config).await;
     let dashboard_router: Router<AppState> = dashboard::router(state.clone(), &config).await;
     let project_router = projects::router(state.clone(), &config).await;
     let owners_router = owner::router(state.clone(), &config).await;
