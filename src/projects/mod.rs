@@ -20,7 +20,6 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/api/project/:owner/:project/builds", get(project_dashboard::get))
         .route_with_tsr("/api/project/:owner/:project/logs", get(view_container_log::get))
         .route_with_tsr("/api/project/:owner/:project/builds/:build_id", get(view_build_log::get))
-        .route_with_tsr("/:owner/:project/preferences", get(preferences::get))
         .route_with_tsr("/api/project/:owner/:project/delete", post(delete_project::post))
         .route_with_tsr("/api/project/:owner/:project/volume/delete", post(delete_volume::post))
         .route_with_tsr("/api/project/:owner/:project/terminal/ws", get(web_terminal::ws))

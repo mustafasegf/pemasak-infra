@@ -11,6 +11,7 @@ use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
 use serde::Serialize;
 
+use crate::auth::Auth;
 use crate::startup::AppState;
 
 #[derive(Serialize)]
@@ -24,8 +25,9 @@ struct DeleteProjectErrorResponse {
     details: Vec<String>
 }
 
-#[tracing::instrument(skip(pool, base))]
+#[tracing::instrument(skip(pool, base, auth))]
 pub async fn post(
+    auth: Auth,
     Path((owner, project)): Path<(String, String)>,
     State(AppState { pool, base, .. }): State<AppState>,
 ) -> Response<Body> {
@@ -55,8 +57,25 @@ pub async fn post(
         true => format!("{base}/{owner}/{project}"),
         false => format!("{base}/{owner}/{project}.git"),
     };
-    //TODO: better error log
 
+    match auth.current_user {
+        Some(user) => {
+            if user.username != owner {
+                let json = serde_json::to_string(&DeleteProjectErrorResponse {
+                    message: format!("You are not allowed to delete this project"),
+                    details: vec!(),
+                }).unwrap();
+    
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(json))
+                    .unwrap();
+            }
+        },
+        None => ()
+    }
+
+    //TODO: better error log
     let mut status: HashMap<&'static str, &'static str> = HashMap::new();
 
     // check if owner exist

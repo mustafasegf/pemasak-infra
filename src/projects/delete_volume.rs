@@ -6,6 +6,7 @@ use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
 use leptos::{view, IntoView};
 use serde::Serialize;
+use crate::auth::Auth;
 
 #[derive(Serialize)]
 struct DeleteVolumeSuccessResponse {
@@ -18,11 +19,28 @@ struct DeleteVolumeErrorResponse {
     details: Vec<String>
 }
 
-#[tracing::instrument]
-pub async fn post(Path((owner, project)): Path<(String, String)>) -> Response<Body> {
+#[tracing::instrument(skip(auth))]
+pub async fn post(auth: Auth, Path((owner, project)): Path<(String, String)>) -> Response<Body> {
     let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
     let db_name = format!("{}-db", container_name);
     let volume_name = format!("{}-volume", container_name);
+
+    match auth.current_user {
+        Some(user) => {
+            if user.username != owner {
+                let json = serde_json::to_string(&DeleteVolumeErrorResponse {
+                    message: format!("You are not allowed to delete this project"),
+                    details: vec!(),
+                }).unwrap();
+    
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(json))
+                    .unwrap();
+            }
+        },
+        None => ()
+    }
 
     let docker = match Docker::connect_with_local_defaults() {
         Ok(docker) => docker,
