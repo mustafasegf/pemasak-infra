@@ -9,7 +9,6 @@ mod project_dashboard;
 mod web_terminal;
 mod delete_project;
 mod delete_volume;
-mod components;
 mod view_build_log;
 mod view_container_log;
 
