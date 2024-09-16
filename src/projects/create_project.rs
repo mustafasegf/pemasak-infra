@@ -5,7 +5,6 @@ use axum::{
 };
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
-use leptos::{ssr::render_to_string, *};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -18,7 +17,6 @@ use rand::{Rng, SeedableRng};
 
 use crate::{
     auth::Auth,
-    components::Base,
     startup::AppState,
 };
 
@@ -292,81 +290,5 @@ pub async fn post(
     Response::builder()
         .status(StatusCode::OK)
         .body(Body::from(json))
-        .unwrap()
-}
-
-#[tracing::instrument(skip(auth, pool))]
-pub async fn get(
-    auth: Auth,
-    State(AppState { pool, .. }): State<AppState>,
-) -> Response<Body> {
-    let user = auth.current_user.unwrap();
-
-    let owners = match sqlx::query!(
-        r#"select o.id, o.name
-           FROM project_owners o
-           JOIN users_owners uo on uo.owner_id = o.id
-           where uo.user_id = $1
-           AND o.deleted_at is NULL
-        "#,
-        user.id
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        Ok(data) => data,
-        Err(err) => {
-            tracing::error!(?err, "Can't get owners: Failed to query database");
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to query database {err.to_string() } </h1>
-                }
-            })
-            .into_owned();
-            return Response::builder()
-                .status(500)
-                .body(Body::from(html))
-                .unwrap();
-        }
-    };
-
-    let html = render_to_string(move || view! {
-        // TODO
-        <Base is_logged_in={true}>
-            <form 
-              hx-post="/new" 
-              hx-trigger="submit"
-              hx-target="#result"
-              class="flex flex-col mb-4 gap-2"
-            >
-                <h1 class="text-2xl font-bold"> Create Project </h1>
-                <h3 class="text-lg"> "login as " {user.username} </h3>
-                <div class="flex flex-row gap-2">
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text">Owner</span>
-                      </label>
-                        <select name="owner" class="select select-bordered w-full max-w-xs">
-                            {owners.into_iter().map(|owner|{ view!{ 
-                                <option>{owner.name}</option>
-                            }}).collect::<Vec<_>>()}
-                        </select>
-                    </div>
-                    <div class="form-control">
-                      <label class="label">
-                        <span class="label-text">Project</span>
-                      </label>
-                        <input type="text" name="project" required class="input input-bordered w-full max-w-xs"/>
-                    </div>
-                </div>
-                <button class="mt-4 btn btn-primary w-full max-w-xs">Create Project</button>
-            </form>
-            <div id="result"></div>
-        </Base>
-    }).into_owned();
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
-        .body(Body::from(html))
         .unwrap()
 }
