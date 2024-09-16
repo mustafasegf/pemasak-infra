@@ -1,14 +1,13 @@
 use std::collections::HashSet;
 
 use axum::{
-    extract::{Json, State}, middleware::Next, response::{Html, Response}, routing::get, Router
+    extract::{Json, State}, middleware::Next, response::Response, routing::{get, post}, Router
 };
 use axum_extra::routing::RouterExt;
 use axum_session::SessionStore;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Request, StatusCode};
-use leptos::{ssr::render_to_string, *};
 use regex::Regex;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
@@ -26,7 +25,7 @@ use argon2::{
 use async_trait::async_trait;
 use axum_session_auth::*;
 
-use crate::{components::Base, configuration::Settings, startup::AppState};
+use crate::{configuration::Settings, startup::AppState};
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -37,8 +36,8 @@ pub type Auth = AuthSession<User, Uuid, SessionPgPool, PgPool>;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
-        .route_with_tsr("/api/register", get(register_user_ui).post(register_user))
-        .route_with_tsr("/api/login", get(login_user_ui).post(login_user))
+        .route_with_tsr("/api/register", post(register_user))
+        .route_with_tsr("/api/login", post(login_user))
         .route_with_tsr("/api/logout", get(logout_user).post(logout_user))
         .route_with_tsr("/api/validate", get(validate_auth))
 }
@@ -611,53 +610,6 @@ pub async fn register_user(
     }
 }
 
-#[tracing::instrument]
-pub async fn register_user_ui(
-    auth: Auth,
-    State(AppState { build_channel, .. }): State<AppState>,
-) -> Html<String> {
-    let is_logged_in: bool = auth.current_user.is_some();
-
-    let html = render_to_string(move || {
-        view! {
-            <Base is_logged_in={is_logged_in} class={"!pt-0".to_string()}>
-                <form 
-                    class="flex flex-col p-12 gap-8 w-full md:w-1/2 mx-auto my-auto bg-slate-900/30 rounded-lg backdrop-blur-sm border border-1 border-slate-700"
-                    hx-post="/register" 
-                    hx-trigger="submit"
-                    hx-target="#result"
-                    >
-                    <h1 class="w-full text-center text-3xl font-bold"> Register Account </h1>
-
-                    <div class="flex flex-col gap-4">
-                        <div class="flex flex-col gap-2">
-                            <label for="username">"Username (SSO UI)"</label>
-                            <input type="text" name="username" id="username" required class="input input-bordered w-full" />
-                        </div>
-                        
-                        <div class="flex flex-col gap-2">
-                            <label for="password">"Password (SSO UI)"</label>
-                            <input type="password" name="password" id="password" required class="input input-bordered w-full" />
-                        </div>
-
-                        <div class="flex flex-col gap-2">
-                            <label for="name">Full Name</label>
-                            <input type="text" name="name" id="name" required class="input input-bordered w-full" />
-                        </div>
-                    </div>
-                    
-                    <button class="mt-4 btn btn-primary w-full">Register</button>
-                </form>
-
-                <div id="result"></div>
-            </Base>
-        }
-    })
-    .into_owned();
-
-    Html(html)
-}
-
 #[tracing::instrument(skip(auth))]
 pub async fn logout_user(auth: Auth) -> Response<Body> {
     auth.logout_user();
@@ -716,54 +668,6 @@ pub async fn login_user(
         .status(StatusCode::FOUND)
         .header("HX-Location", "/api/dashboard")
         .body(Body::empty())
-        .unwrap()
-}
-
-#[tracing::instrument(skip(auth))]
-pub async fn login_user_ui(auth: Auth) -> Response<Body> {
-    if auth.current_user.is_some() {
-        return Response::builder()
-            .status(StatusCode::FOUND)
-            .header("Location", "/api/dashboard")
-            .body(Body::empty())
-            .unwrap();
-    }
-
-    let is_logged_in = auth.current_user.is_some();
-
-    let html = render_to_string(move || view! {
-        <Base is_logged_in={is_logged_in} class={"!pt-0".to_string()}>
-            <form 
-                class="flex flex-col p-12 gap-8 w-full md:w-1/2 mx-auto my-auto bg-slate-900/30 rounded-lg backdrop-blur-sm border border-1 border-slate-700"
-                hx-post="/login" 
-                hx-trigger="submit"
-                >
-                <h1 class="w-full text-center text-3xl font-bold"> Login </h1>
-
-                <div class="flex flex-col gap-4">
-                    <div class="flex flex-col gap-2">
-                    <label for="username">Username</label>
-                    <input type="temt" name="username" id="username" required class="input input-bordered w-full" />
-                    </div>
-
-                    <div class="flex flex-col gap-2">
-                    <label for="password">Password</label>
-                    <input type="password" name="password" id="password" required class="input input-bordered w-full" />
-                    </div>
-                </div>
-                
-                <button class="btn btn-primary w-full">Login</button>
-                <p class="text-center">
-                    {"Don't have an account? "}<br /><a class="hover:underline text-secondary" href="/register">Register Here</a>
-                </p>
-            </form>
-            <div id="result"></div>
-        </Base>
-    }).into_owned();
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
-        .body(Body::from(html))
         .unwrap()
 }
 
