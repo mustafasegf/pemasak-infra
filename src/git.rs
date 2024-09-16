@@ -35,6 +35,7 @@ use data_encoding::BASE64;
 
 async fn basic_auth<B>(
     State(AppState { pool, git_auth, .. }): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
     request: Request<B>,
     next: Next<B>,
@@ -55,6 +56,13 @@ async fn basic_auth<B>(
         .body(Body::empty())
         .unwrap();
 
+    let repo = match repo.ends_with(".git") {
+        true => {
+            repo.split(".git").next().unwrap_or("")
+        }.to_owned(),
+        false => format!("{repo}"),
+    };
+
     match headers.get("Authorization").and_then(|v| v.to_str().ok()) {
         None => Err(auth_err),
         Some(auth) => {
@@ -73,7 +81,7 @@ async fn basic_auth<B>(
             let token = parts.next().unwrap_or("");
 
             let tokens = match sqlx::query!(
-                r#"SELECT api_token.token
+                r#"SELECT projects.name AS project_name, api_token.token AS token, project_owners.name AS project_owner
                     FROM project_owners
                     JOIN projects ON project_owners.id = projects.owner_id
                     JOIN api_token ON projects.id = api_token.project_id
@@ -90,12 +98,17 @@ async fn basic_auth<B>(
             };
 
             let hasher = Argon2::default();
-            let authenticaed = tokens.iter().any(|rec| {
-                PasswordHash::new(&rec.token)
+            let authenticated = tokens.iter().any(|rec| {
+                let hash_match = PasswordHash::new(&rec.token)
                     .and_then(|hash| hasher.verify_password(token.as_bytes(), &hash))
-                    .is_ok()
+                    .is_ok();
+
+                let authorization_match = rec.project_name == repo && rec.project_owner == owner_name;
+
+                hash_match && authorization_match
             });
-            if !authenticaed {
+            
+            if !authenticated {
                 return Err(auth_failed);
             }
 
