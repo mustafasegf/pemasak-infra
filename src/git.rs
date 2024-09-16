@@ -120,7 +120,7 @@ async fn basic_auth<B>(
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route_with_tsr("/:owner/:repo/git-upload-pack", post(upload_pack_rpc))
-        .route_with_tsr("/:owner/:repo/git-receive-pack", post(recieve_pack_rpc))
+        .route_with_tsr("/:owner/:repo/git-receive-pack", post(receive_pack_rpc))
         .route_with_tsr("/:owner/:repo/info/refs", get(get_info_refs))
         .route_with_tsr(
             "/:owner/:repo/HEAD",
@@ -391,7 +391,7 @@ fn normal_merge(
     Ok(())
 }
 
-pub async fn recieve_pack_rpc(
+pub async fn receive_pack_rpc(
     Path((owner, repo)): Path<(String, String)>,
     State(AppState {
         base,
