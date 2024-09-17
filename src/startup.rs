@@ -5,6 +5,8 @@ use axum::{middleware, routing, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
+use bollard::container::InspectContainerOptions;
+use bollard::Docker;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{Body, Method, Request, Response, StatusCode, Uri};
@@ -198,53 +200,76 @@ pub async fn fallback_middleware(
 
     tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
 
-    match sqlx::query!(
-        r#"SELECT docker_ip, port
-           FROM domains
-           WHERE name = $1
-        "#,
-        subdomain
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(Some(route)) => {
-            tracing::debug!(
-                ip = route.docker_ip,
-                port = route.port,
-                ?uri,
-                "route found {}",
-                uri
-            );
-            let uri = format!("http://{}:{}{}", route.docker_ip, route.port, uri);
-            *req.uri_mut() = Uri::try_from(uri).unwrap();
-            match client.request(req).await {
-                Ok(res) => Err(res),
-                Err(err) => {
-                    tracing::error!(?err, "Can't access container: Failed request to container");
+    let ip_address = match Docker::connect_with_local_defaults() {
+        Ok(docker) => match docker.inspect_container(subdomain, None).await {
+            Ok(res) => {
+                let network = match res.network_settings {
+                    Some(network) => network,
+                    None => {
+                        return Err(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::empty())
+                            .unwrap());
+                    }
+                };
 
-                    Err(Response::builder()
+                let networks = match network.networks {
+                    Some(networks) => networks,
+                    None => {
+                        return Err(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::empty())
+                            .unwrap());
+                    }
+                };
+
+                let bridge = networks.get("bridge");
+                if let Some(bridge) = bridge {
+                    match &bridge.ip_address {
+                        Some(ip_address) => Ok(ip_address.clone()),
+                        None => {
+                            return Err(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Body::empty())
+                            .unwrap());
+                        }
+                    }
+                } else {
+                    return Err(Response::builder()
                         .status(StatusCode::BAD_REQUEST)
                         .body(Body::empty())
-                        .unwrap())
+                        .unwrap());
                 }
             }
-        }
-        Ok(None) => {
-            tracing::debug!(?uri, "route not found {}", uri);
-
-            Err(Response::builder()
-                .status(StatusCode::NOT_FOUND)
+            Err(_) => Err(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
                 .body(Body::empty())
-                .unwrap())
-        }
-        Err(err) => {
-            tracing::error!(?err, "Can't get subdomain: Failed to query database");
+                .unwrap()),
+        },
+        Err(_) => Err(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::empty())
+            .unwrap()),
+    };
 
-            Err(Response::builder()
+    if let Ok(ip_address) = ip_address {
+        let uri = format!("http://{}:{}{}", ip_address, 80, uri);
+        *req.uri_mut() = Uri::try_from(uri).unwrap();
+        match client.request(req).await {
+            Ok(res) => Err(res),
+            Err(err) => {
+                tracing::error!(?err, "Can't access container: Failed request to container");
+    
+                Err(Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::empty())
                 .unwrap())
+            }
         }
+    } else {
+        Err(Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::empty())
+            .unwrap())
     }
 }
