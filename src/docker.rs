@@ -1,7 +1,8 @@
-use std::{collections::HashMap, process::Stdio};
 use std::process::Output;
+use std::{collections::HashMap, process::Stdio};
 
 use anyhow::Result;
+use bollard::network::DisconnectNetworkOptions;
 use bollard::{
     container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
     image::{ListImagesOptions, TagImageOptions},
@@ -104,23 +105,23 @@ pub async fn build_docker(
         true => {
             tracing::debug!(container_name, "Build using dockerfile");
             // build from Dockerfile
-             let mut cmd = Command::new("docker");
-                cmd.args(&[
-                    "build",
-                    "--cpu-period=100000",
-                    "--cpu-quota=50000",
-                    "-t",
-                    &image_name,
-                    "-f",
-                    &std::path::Path::new(container_src)
-                        .join("Dockerfile")
-                        .to_str()
-                        .unwrap(),
-                    container_src,
-                ])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+            let mut cmd = Command::new("docker");
+            cmd.args(&[
+                "build",
+                "--cpu-period=100000",
+                "--cpu-quota=50000",
+                "-t",
+                &image_name,
+                "-f",
+                &std::path::Path::new(container_src)
+                    .join("Dockerfile")
+                    .to_str()
+                    .unwrap(),
+                container_src,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
             let child = cmd.spawn().map_err(|err| {
                 tracing::error!("Failed to spawn docker build: {}", err);
@@ -140,7 +141,10 @@ pub async fn build_docker(
                 false => {
                     tracing::error!("Failed to build image");
 
-                    return Err(anyhow::anyhow!("Failed to build image: {}", String::from_utf8(output.stderr).unwrap()));
+                    return Err(anyhow::anyhow!(
+                        "Failed to build image: {}",
+                        String::from_utf8(output.stderr).unwrap()
+                    ));
                 }
             }
         }
@@ -180,7 +184,7 @@ pub async fn build_docker(
     let containers = docker
         .list_containers(Some(ListContainersOptions::<String> {
             all: true,
-            filters: HashMap::from([("name".to_string(), vec![ format!("^{container_name}$") ])]),
+            filters: HashMap::from([("name".to_string(), vec![format!("^{container_name}$")])]),
             ..Default::default()
         }))
         .await
@@ -361,6 +365,20 @@ pub async fn build_docker(
             // TODO: change this into a psql command check
             std::thread::sleep(std::time::Duration::from_secs(10));
 
+            let _ = docker
+                .disconnect_network(
+                    "bridge",
+                    DisconnectNetworkOptions {
+                        container: &db_name,
+                        force: true,
+                    },
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to disconnect container from bridge: {}", err);
+                    err
+                });
+
             // connect db container to network
             docker
                 .connect_network(
@@ -474,6 +492,20 @@ pub async fn build_docker(
                     // wait until postgres is ready
                     // TODO: change this into a psql command check
                     std::thread::sleep(std::time::Duration::from_secs(10));
+
+                    let _ = docker
+                        .disconnect_network(
+                            "bridge",
+                            DisconnectNetworkOptions {
+                                container: &db_name,
+                                force: true,
+                            },
+                        )
+                        .await
+                        .map_err(|err| {
+                            tracing::error!("Failed to disconnect container from bridge: {}", err);
+                            err
+                        });
 
                     // connect db container to network
                     docker
@@ -752,6 +784,20 @@ pub async fn build_docker(
         })?;
 
     tracing::info!(ip = ?ip, port = ?port, "Container {} ip address", container_name);
+
+    let _ = docker
+        .disconnect_network(
+            "bridge",
+            DisconnectNetworkOptions {
+                container: container_name,
+                force: true,
+            },
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!("Failed to disconnect container from bridge: {}", err);
+            err
+        });
 
     Ok(DockerContainer {
         ip,
