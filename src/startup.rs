@@ -223,9 +223,9 @@ pub async fn fallback_middleware(
                     }
                 };
 
-                let bridge = networks.get("bridge");
-                if let Some(bridge) = bridge {
-                    match &bridge.ip_address {
+                let project_network = networks.get(&format!("{}-network", subdomain));
+                if let Some(project_network) = project_network {
+                    match &project_network.ip_address {
                         Some(ip_address) => Ok(ip_address.clone()),
                         None => {
                             return Err(Response::builder()
