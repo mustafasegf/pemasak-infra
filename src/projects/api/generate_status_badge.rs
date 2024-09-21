@@ -118,6 +118,7 @@ pub async fn get(
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "image/svg+xml")
+        .header("Cache-Control", "no-cache")
         .body(Body::from(badge))
         .unwrap()
 }
