@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, project_id, status AS \"status: BuildState\", created_at, finished_at, log \n        FROM builds WHERE project_id = $1\n        ORDER BY created_at DESC",
+  "query": "SELECT id, project_id, status AS \"status: BuildState\", created_at, updated_at, finished_at, log \n        FROM builds WHERE project_id = $1\n        ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -37,11 +37,16 @@
       },
       {
         "ordinal": 4,
-        "name": "finished_at",
+        "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
         "ordinal": 5,
+        "name": "finished_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
         "name": "log",
         "type_info": "Text"
       }
@@ -56,9 +61,10 @@
       false,
       false,
       false,
+      false,
       true,
       false
     ]
   },
-  "hash": "813f261e92ed71c59fa0d727b0295d003da1f05b11597cd6795d9caddbddc3f0"
+  "hash": "a4aebf7d5a9fffa751b9d0d94d23aa2a1d39ceaa94ba811d05ffa652163d1084"
 }
