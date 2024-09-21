@@ -9,7 +9,7 @@ use crate::{auth::Auth, startup::AppState};
 
 #[derive(Deserialize, Validate, Debug)]
 pub struct UpdateProjectEnvironRequest {
-    #[garde(length(min=1), alphanumeric)]
+    #[garde(length(min=1))]
     pub key: String,
     #[garde(length(min=1))]
     pub value: String,
