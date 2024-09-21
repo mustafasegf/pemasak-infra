@@ -14,10 +14,12 @@ mod view_container_log;
 mod view_project_environ;
 mod update_project_environ;
 mod delete_project_environ;
+mod generate_status_badge;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route_with_tsr("/api/project/new", post(create_project::post))
+        .route_with_tsr("/api/project/:owner/:project/badge/status", get(generate_status_badge::get))
         .route_with_tsr("/api/project/:owner/:project/builds", get(project_dashboard::get))
         .route_with_tsr("/api/project/:owner/:project/logs", get(view_container_log::get))
         .route_with_tsr("/api/project/:owner/:project/env", get(view_project_environ::get).post(update_project_environ::post))

@@ -5,7 +5,6 @@ use axum::{middleware, routing, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
 use axum_session_auth::AuthSessionLayer;
-use bollard::container::InspectContainerOptions;
 use bollard::Docker;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;

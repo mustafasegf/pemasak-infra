@@ -21,6 +21,7 @@ axum = { version = "0.6.20", features = [
 axum-extra = { version = "0.8.0", features = ["typed-routing"] }
 axum_session = "0.6.1"
 axum_session_auth = "0.6.0"
+badgen = "0.1.0"
 bollard = "0.15.0"
 byte-unit = "4.0.19"
 bytes = "1.5.0"
