@@ -79,7 +79,7 @@ pub async fn get(
     };
 
     let build = match sqlx::query!(
-        r#"SELECT id, project_id, status AS "status: BuildState", created_at, finished_at, log 
+        r#"SELECT id, project_id, status AS "status: BuildState", created_at, updated_at, finished_at, log 
         FROM builds WHERE project_id = $1
         ORDER BY created_at DESC"#,
         project_record.id
@@ -119,6 +119,7 @@ pub async fn get(
         .status(StatusCode::OK)
         .header("Content-Type", "image/svg+xml")
         .header("Cache-Control", "no-cache")
+        .header("Last-Modified", build.updated_at.to_rfc2822())
         .body(Body::from(badge))
         .unwrap()
 }
