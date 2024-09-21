@@ -31,6 +31,7 @@ pub struct DockerContainer {
 
 #[tracing::instrument(skip(pool))]
 pub async fn build_docker(
+    owner: &str,
     project_name: &str,
     container_name: &str,
     container_src: &str,
@@ -538,14 +539,44 @@ pub async fn build_docker(
     // TODO: figure out if we need make this configurable
     let port = 80;
 
-    let mut config = Config {
+    let envs = sqlx::query!(
+        r#"SELECT environs 
+        FROM projects
+        JOIN project_owners ON projects.owner_id = project_owners.id
+        WHERE projects.name = $1 AND project_owners.name = $2"#,
+        project_name, owner,
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|err| {
+        tracing::error!(?err, "Failed to query database: {}", err);
+        err
+    })?;
+
+    let environment_strings = match envs.environs.as_object() {
+        Some(map) => {
+            let environment_strings = map.into_iter().map(|(key, value)| {
+                format!("{}={}", key, value.as_str().unwrap())
+            }).collect::<Vec<_>>();
+
+            Ok(environment_strings)
+        },
+        None => {
+            tracing::error!("Non object value passed as environment variable {}", container_name);
+            Err(anyhow::anyhow!("Non object value passed as environment variable {}", container_name))
+        }
+    }?;
+
+    let mut config: Config<String> = Config {
         image: Some(image_name.clone()),
         // TDDO: rethink if we need to make this configurable
-        env: Some(vec![
-            "PRODUCTION=true".to_string(),
-            format!("PORT={}", port),
-            format!("DATABASE_URL={}", db_url),
-        ]),
+        env: Some([
+            vec![
+                format!("PORT={}", port),
+                format!("DATABASE_URL={}", db_url),
+            ],
+            environment_strings,
+        ].concat()),
         host_config: Some(HostConfig {
             restart_policy: Some(RestartPolicy {
                 name: Some(RestartPolicyNameEnum::ON_FAILURE),

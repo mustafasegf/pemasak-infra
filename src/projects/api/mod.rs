@@ -11,12 +11,17 @@ mod delete_project;
 mod delete_volume;
 mod view_build_log;
 mod view_container_log;
+mod view_project_environ;
+mod update_project_environ;
+mod delete_project_environ;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route_with_tsr("/api/project/new", post(create_project::post))
         .route_with_tsr("/api/project/:owner/:project/builds", get(project_dashboard::get))
         .route_with_tsr("/api/project/:owner/:project/logs", get(view_container_log::get))
+        .route_with_tsr("/api/project/:owner/:project/env", get(view_project_environ::get).post(update_project_environ::post))
+        .route_with_tsr("/api/project/:owner/:project/env/delete", post(delete_project_environ::post))
         .route_with_tsr("/api/project/:owner/:project/builds/:build_id", get(view_build_log::get))
         .route_with_tsr("/api/project/:owner/:project/delete", post(delete_project::post))
         .route_with_tsr("/api/project/:owner/:project/volume/delete", post(delete_volume::post))

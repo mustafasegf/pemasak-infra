@@ -48,7 +48,7 @@ serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.107"
 strip-ansi-escapes = "0.2.0"
 thiserror = "1.0.49"
-time = { version = "0.3.30", features=["macros", "formatting", "local-offset"]}
+time = { version = "0.3.35", features=["macros", "formatting", "local-offset"]}
 tokio = { version = "1.33.0", features = ["full"] }
 tokio-util = "0.7.9"
 tower = { version = "0.4.13", features = ["tokio"] }
@@ -69,4 +69,5 @@ features = [
   "uuid",
   "chrono",
   "migrate",
+  "json",
 ]

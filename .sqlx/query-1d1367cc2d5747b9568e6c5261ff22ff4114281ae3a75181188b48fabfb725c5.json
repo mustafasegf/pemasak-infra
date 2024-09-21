@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE projects\n            SET environs = jsonb_set(projects.environs, $1, $2, true)\n            WHERE id = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d1367cc2d5747b9568e6c5261ff22ff4114281ae3a75181188b48fabfb725c5"
+}

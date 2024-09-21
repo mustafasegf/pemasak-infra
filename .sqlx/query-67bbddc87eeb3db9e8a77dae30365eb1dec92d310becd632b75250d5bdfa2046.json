@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT projects.id AS id, projects.name AS project, projects.environs AS env\n           FROM projects\n           JOIN project_owners ON projects.owner_id = project_owners.id\n           JOIN users_owners ON project_owners.id = users_owners.owner_id\n           AND projects.name = $1\n           AND project_owners.name = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "project",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "env",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "67bbddc87eeb3db9e8a77dae30365eb1dec92d310becd632b75250d5bdfa2046"
+}

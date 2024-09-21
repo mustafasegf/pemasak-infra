@@ -44,7 +44,7 @@ CREATE TABLE projects (
   id          UUID          NOT NULL,
   owner_id    UUID          NOT NULL,
   name        TEXT          NOT NULL,
-  environs    JSONB         NOT NULL default '{}'::jsonb,
+  environs    JSONB         NOT NULL default '{"PRODUCTION": "true"}'::jsonb,
   created_at  TIMESTAMPTZ   NOT NULL default now(),
   updated_at  TIMESTAMPTZ   NOT NULL default now(),
   deleted_at  TIMESTAMPTZ,

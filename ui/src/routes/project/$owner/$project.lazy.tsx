@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FileTextIcon } from "@radix-ui/react-icons";
 import { Link, Outlet, createLazyFileRoute, useParams } from "@tanstack/react-router";
 import useSWR from "swr";
 
@@ -109,6 +110,17 @@ function ProjectDashboard() {
                                     <path d="M18 10H16V12H18V10Z" fill="white" />
                                 </svg>
                                 Logs
+                            </Link>
+                            <Link
+                                to="/project/$owner/$project/env"
+                                params={{ owner, project }}
+                                className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                                activeProps={{
+                                    className: "bg-slate-900"
+                                }}
+                            >
+                                <FileTextIcon width="20" height="20" className="mr-1.5" />
+                                Environs
                             </Link>
                             <Link
                                 to="/project/$owner/$project/settings"

@@ -155,7 +155,7 @@ pub async fn trigger_build(
     // TODO: Differentiate types of errors returned by build_docker (ex: ImageBuildError, NetworkCreateError, ContainerAttachError)
     let DockerContainer {
         ip, port, db_url, ..
-    } = match build_docker(&repo, &container_name, &container_src, pool.clone()).await {
+    } = match build_docker(&owner, &repo, &container_name, &container_src, pool.clone()).await {
         Ok(result) => {
             if let Err(err) = sqlx::query!(
                 "UPDATE builds SET status = 'successful', log = $1 WHERE id = $2",
