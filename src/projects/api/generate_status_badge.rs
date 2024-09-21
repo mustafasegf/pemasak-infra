@@ -38,8 +38,6 @@ pub async fn get(
     State(AppState { pool, domain, secure, .. }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
-    let _user = auth.current_user.unwrap();
-
     // check if project exist
     let project_record = match sqlx::query!(
         r#"SELECT projects.id

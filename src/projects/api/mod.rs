@@ -19,7 +19,6 @@ mod generate_status_badge;
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route_with_tsr("/api/project/new", post(create_project::post))
-        .route_with_tsr("/api/project/:owner/:project/badge/status", get(generate_status_badge::get))
         .route_with_tsr("/api/project/:owner/:project/builds", get(project_dashboard::get))
         .route_with_tsr("/api/project/:owner/:project/logs", get(view_container_log::get))
         .route_with_tsr("/api/project/:owner/:project/env", get(view_project_environ::get).post(update_project_environ::post))
@@ -29,4 +28,5 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/api/project/:owner/:project/volume/delete", post(delete_volume::post))
         .route_with_tsr("/api/project/:owner/:project/terminal/ws", get(web_terminal::ws))
         .route_layer(middleware::from_fn(auth))
+        .route_with_tsr("/api/project/:owner/:project/badge/status", get(generate_status_badge::get))
 }
